@@ -1,0 +1,21 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Genie data (local development)
+# Uncomment to ignore local data during development:
+# ~/.genie/
+
+# Test artifacts
+*.log
+
