@@ -157,10 +157,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(Color::DarkGray),
         ),
         Span::raw(" │ "),
-        Span::styled(
-            app.config.server_url(),
-            Style::default().fg(Color::Green),
-        ),
+        Span::styled(app.config.server_url(), Style::default().fg(Color::Green)),
     ])])
     .block(
         Block::default()

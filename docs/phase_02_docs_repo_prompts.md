@@ -35,8 +35,8 @@ Phase 2 builds on Phase 1 (core CLI, quota, HTTP).
 
 **Goal:** Read PDFs into structured Rust types with page and formatting info.
 
-- [ ] **1.1** Add PDF dependency (e.g., `lopdf` or equivalent).
-- [ ] **1.2** Define core PDF types in `genie-core::pdf`:
+- [x] **1.1** Add PDF dependency (e.g., `lopdf` or equivalent).
+- [x] **1.2** Define core PDF types in `genie-core::pdf`:
 
   ```rust
   struct PdfDocument {
@@ -57,18 +57,18 @@ Phase 2 builds on Phase 1 (core CLI, quota, HTTP).
   }
 ````
 
-* [ ] **1.3** Implement `fn load_pdf(path: &Path) -> Result<PdfDocument, PdfError>`.
-* [ ] **1.4** Implement basic heuristics to merge adjacent text segments into logical `TextBlock`s.
-* [ ] **1.5** Provide helper methods:
+* [x] **1.3** Implement `fn load_pdf(path: &Path) -> Result<PdfDocument, PdfError>`.
+* [x] **1.4** Implement basic heuristics to merge adjacent text segments into logical `TextBlock`s.
+* [x] **1.5** Provide helper methods:
 
-  * [ ] `fn full_text(&self) -> String`
-  * [ ] `fn pages_text_range(&self, start: u32, end: u32) -> String`
+  * [x] `fn full_text(&self) -> String`
+  * [x] `fn pages_text_range(&self, start: u32, end: u32) -> String`
 
 #### Acceptance Criteria
 
-* [ ] Given a sample PDF, `load_pdf` returns a non-empty `PdfDocument` with at least one page and text blocks.
-* [ ] `full_text()` returns text that, when manually inspected for a test file, roughly matches the visible text.
-* [ ] No panics on corrupted or odd PDFs; errors are gracefully reported.
+* [x] Given a sample PDF, `load_pdf` returns a non-empty `PdfDocument` with at least one page and text blocks.
+* [x] `full_text()` returns text that, when manually inspected for a test file, roughly matches the visible text.
+* [x] No panics on corrupted or odd PDFs; errors are gracefully reported.
 
 #### Auto-Testing Prompt
 
@@ -95,7 +95,7 @@ Respond with JSON:
 
 **Goal:** Detect chapter boundaries using font heuristics, then refine via Gemini.
 
-* [ ] **2.1** Define `ChapterCandidate` and `Chapter` structs:
+* [x] **2.1** Define `ChapterCandidate` and `Chapter` structs:
 
   ```rust
   struct ChapterCandidate {

@@ -60,6 +60,73 @@ pub enum Commands {
         schema: Option<PathBuf>,
     },
 
+    /// Summarize a PDF document
+    SummarizePdf {
+        /// Path to the PDF file
+        file: PathBuf,
+
+        /// Summary style (concise, detailed, exam-notes, bullet)
+        #[arg(long, default_value = "concise")]
+        style: String,
+
+        /// Output language
+        #[arg(long, default_value = "en")]
+        language: String,
+
+        /// Output format (json, markdown, both)
+        #[arg(long, default_value = "both")]
+        format: String,
+
+        /// Output file path (optional)
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
+
+    /// Summarize a book with chapter detection
+    SummarizeBook {
+        /// Path to the PDF file
+        file: PathBuf,
+
+        /// Summary style (concise, detailed, exam-notes, bullet)
+        #[arg(long, default_value = "concise")]
+        style: String,
+
+        /// Output language
+        #[arg(long, default_value = "en")]
+        language: String,
+
+        /// Output format (json, markdown, both)
+        #[arg(long, default_value = "both")]
+        format: String,
+
+        /// Output file path (optional)
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
+
+    /// Summarize a code repository
+    RepoSummary {
+        /// Path to the repository (default: current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Output format (json, markdown)
+        #[arg(long, default_value = "markdown")]
+        format: String,
+
+        /// Output file path (optional)
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+
+        /// Maximum files to process
+        #[arg(long)]
+        max_files: Option<u32>,
+    },
+
+    /// Prompt template commands
+    #[command(subcommand)]
+    Templates(TemplatesCommands),
+
     /// Start Genie daemon with TUI
     Up {
         /// Run in background without TUI
@@ -80,6 +147,46 @@ pub enum Commands {
     /// Configuration commands
     #[command(subcommand)]
     Config(ConfigCommands),
+}
+
+#[derive(Subcommand)]
+pub enum TemplatesCommands {
+    /// List available templates
+    List,
+
+    /// Show template details
+    Show {
+        /// Template name
+        name: String,
+    },
+
+    /// Run a template
+    Run {
+        /// Template name
+        name: String,
+
+        /// Variable values (key=value)
+        #[arg(long, short, value_parser = parse_key_val)]
+        var: Vec<(String, String)>,
+
+        /// File variables (key=path)
+        #[arg(long, short, value_parser = parse_key_val)]
+        file: Vec<(String, String)>,
+    },
+
+    /// Create a new template
+    New {
+        /// Template name
+        name: String,
+    },
+}
+
+/// Parse a key=value pair
+fn parse_key_val(s: &str) -> Result<(String, String), String> {
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid key=value: no '=' found in '{}'", s))?;
+    Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
 }
 
 #[derive(Subcommand)]
@@ -152,6 +259,56 @@ async fn main() -> Result<()> {
         Commands::Json { prompt, schema } => {
             commands::json::run(config, prompt, schema, cli.ignore_quota).await
         }
+        Commands::SummarizePdf {
+            file,
+            style,
+            language,
+            format,
+            out,
+        } => {
+            commands::docs::summarize_pdf(
+                config,
+                file,
+                style,
+                language,
+                format,
+                out,
+                cli.ignore_quota,
+            )
+            .await
+        }
+        Commands::SummarizeBook {
+            file,
+            style,
+            language,
+            format,
+            out,
+        } => {
+            commands::docs::summarize_book(
+                config,
+                file,
+                style,
+                language,
+                format,
+                out,
+                cli.ignore_quota,
+            )
+            .await
+        }
+        Commands::RepoSummary {
+            path,
+            format,
+            out,
+            max_files,
+        } => commands::repo::run(config, path, format, out, max_files, cli.ignore_quota).await,
+        Commands::Templates(cmd) => match cmd {
+            TemplatesCommands::List => commands::templates::list().await,
+            TemplatesCommands::Show { name } => commands::templates::show(&name).await,
+            TemplatesCommands::Run { name, var, file } => {
+                commands::templates::run(config, &name, var, file, cli.ignore_quota).await
+            }
+            TemplatesCommands::New { name } => commands::templates::new_template(&name),
+        },
         Commands::Up { daemon } => commands::up::run(config, daemon).await,
         Commands::Status => commands::status::run(config).await,
         Commands::Stop => commands::stop::run(config).await,

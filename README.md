@@ -10,6 +10,9 @@
 - **📊 Quota Tracking**: Monitor your usage with requests/minute and requests/day limits
 - **🌐 OpenAI-Compatible API**: Drop-in replacement for OpenAI's `/v1/chat/completions` endpoint
 - **📺 TUI Dashboard**: Tilt-like terminal UI for monitoring your Genie daemon
+- **📄 PDF/Book Summarization**: Summarize PDFs with automatic chapter detection
+- **📁 Repo Summarization**: Analyze and summarize code repositories
+- **📝 Prompt Templates**: Reusable prompts with variable interpolation
 - **⚡ Async Rust**: Built with Tokio for high performance
 
 ## 📋 Prerequisites
@@ -64,6 +67,71 @@ genie quota log
 genie config show
 ```
 
+### PDF & Book Summarization
+
+```bash
+# Summarize a PDF document
+genie summarize-pdf document.pdf --style concise --format both
+
+# Summarize a book with chapter detection
+genie summarize-book textbook.pdf --style detailed --language en
+
+# Options:
+#   --style: concise, detailed, exam-notes, bullet
+#   --format: json, markdown, both
+#   --out: output file path
+#   --language: output language (default: en)
+```
+
+### Repository Summarization
+
+```bash
+# Summarize current directory
+genie repo-summary
+
+# Summarize specific repo
+genie repo-summary /path/to/repo --format json --out summary.json
+
+# Limit files for quick summary
+genie repo-summary . --max-files 50
+```
+
+### Prompt Templates
+
+Templates are stored in `~/.genie/prompts/*.prompt.md` with YAML frontmatter:
+
+```yaml
+---
+name: "my-template"
+description: "A custom prompt template"
+model: "gemini-2.5-pro"
+input_variables:
+  - name: "topic"
+    description: "Topic to write about"
+    default: "Rust"
+  - name: "file"
+    type: "file"
+    description: "Input file"
+---
+Write about {{ topic }}.
+
+Content: {{ file_content }}
+```
+
+```bash
+# List available templates
+genie templates list
+
+# Show template details
+genie templates show my-template
+
+# Run a template
+genie templates run my-template --var topic=Python --file file=input.txt
+
+# Create new template
+genie templates new my-new-template
+```
+
 ### Start the Daemon (with TUI)
 
 ```bash
@@ -99,9 +167,35 @@ curl http://localhost:11435/v1/chat/completions \
 Available endpoints:
 - `POST /v1/chat/completions` - OpenAI-compatible chat
 - `POST /v1/json` - Guaranteed JSON response
+- `POST /v1/docs/summarize` - PDF/Book summarization
+- `POST /v1/repo/summary` - Repository summarization
 - `GET /v1/quota` - Quota status
 - `GET /v1/models` - List available models
 - `GET /health` - Health check
+
+#### Document Summarization API
+
+```bash
+curl -X POST http://localhost:11435/v1/docs/summarize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "/path/to/document.pdf",
+    "mode": "pdf",
+    "style": "concise",
+    "language": "en"
+  }'
+```
+
+#### Repo Summary API
+
+```bash
+curl -X POST http://localhost:11435/v1/repo/summary \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "/path/to/repo",
+    "max_files": 100
+  }'
+```
 
 ## ⚙️ Configuration
 
@@ -148,7 +242,11 @@ genie/
 │   ├── gemini.rs        # Gemini CLI wrapper
 │   ├── quota.rs         # SQLite usage tracking
 │   ├── server.rs        # HTTP API (Axum)
-│   └── model.rs         # Shared types
+│   ├── model.rs         # Shared types
+│   ├── pdf.rs           # PDF extraction & chapter detection
+│   ├── docs.rs          # Document summarization pipeline
+│   ├── repo.rs          # Repository analysis & summarization
+│   └── templates.rs     # Prompt template engine
 ├── genie-cli/           # CLI binary
 │   ├── commands/        # CLI command implementations
 │   └── tui/             # Terminal UI (ratatui)

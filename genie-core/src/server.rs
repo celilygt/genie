@@ -1,15 +1,17 @@
 //! HTTP server for Genie API.
 //!
 //! Provides an OpenAI-compatible `/v1/chat/completions` endpoint
-//! and Genie-specific endpoints for quota and health checks.
+//! and Genie-specific endpoints for quota, docs, and repo summarization.
 
 use crate::config::Config;
+use crate::docs::{self, BookSummary, DocumentSummary, SummarizeOptions, SummaryStyle};
 use crate::gemini::{GeminiClient, GeminiError, GeminiRequest};
 use crate::model::{
     ApiError, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, Choice, HealthResponse,
     QuotaStatus, RequestKind, Usage,
 };
 use crate::quota::{QuotaError, QuotaManager, UsageEvent};
+use crate::repo::{self, RepoOptions, RepoSummary};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -17,6 +19,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
@@ -55,6 +59,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Genie-specific endpoints
         .route("/v1/quota", get(get_quota))
         .route("/v1/json", post(json_completion))
+        // Document summarization endpoints
+        .route("/v1/docs/summarize", post(summarize_docs))
+        // Repo summarization endpoint
+        .route("/v1/repo/summary", post(summarize_repo))
         // Health & status
         .route("/health", get(health_check))
         .route("/", get(root))
@@ -74,6 +82,8 @@ async fn root() -> impl IntoResponse {
             "json": "/v1/json",
             "models": "/v1/models",
             "quota": "/v1/quota",
+            "docs_summarize": "/v1/docs/summarize",
+            "repo_summary": "/v1/repo/summary",
             "health": "/health"
         }
     }))
@@ -318,6 +328,170 @@ async fn json_completion(
             Err(e.into())
         }
     }
+}
+
+// === Document Summarization Types ===
+
+/// Request for document summarization
+#[derive(Debug, Clone, Deserialize)]
+pub struct DocsSummarizeRequest {
+    /// Path to the PDF file
+    pub path: String,
+    /// Mode: "pdf" for simple document, "book" for chapter detection
+    #[serde(default = "default_mode")]
+    pub mode: String,
+    /// Summary style
+    #[serde(default)]
+    pub style: Option<String>,
+    /// Output language
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+fn default_mode() -> String {
+    "pdf".to_string()
+}
+
+/// Response for document summarization
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum DocsSummarizeResponse {
+    Document(DocumentSummary),
+    Book(BookSummary),
+}
+
+/// Document summarization endpoint
+#[instrument(skip(state, request), fields(path = %request.path, mode = %request.mode))]
+async fn summarize_docs(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<DocsSummarizeRequest>,
+) -> Result<Json<DocsSummarizeResponse>, AppError> {
+    info!("Received docs summarization request");
+
+    let path = PathBuf::from(&request.path);
+
+    if !path.exists() {
+        return Err(AppError::InvalidRequest(format!(
+            "File not found: {}",
+            request.path
+        )));
+    }
+
+    // Build options
+    let mut options = SummarizeOptions::new();
+    if let Some(style) = &request.style {
+        options = options.with_style(match style.as_str() {
+            "detailed" => SummaryStyle::Detailed,
+            "exam-notes" => SummaryStyle::ExamNotes,
+            "bullet" => SummaryStyle::Bullet,
+            _ => SummaryStyle::Concise,
+        });
+    }
+    if let Some(lang) = &request.language {
+        options = options.with_language(lang);
+    }
+
+    // Check quota
+    let kind = if request.mode == "book" {
+        RequestKind::SummarizeBook
+    } else {
+        RequestKind::SummarizePdf
+    };
+    state
+        .quota
+        .check_before_request(&kind, "gemini-2.5-pro")
+        .await?;
+
+    let response = if request.mode == "book" {
+        let summary = docs::summarize_book(&state.gemini, &path, &options)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        // Record usage
+        let event = UsageEvent::new("gemini-2.5-pro", kind, 0, 0, true);
+        if let Err(e) = state.quota.record_event(event).await {
+            error!("Failed to record usage event: {}", e);
+        }
+
+        DocsSummarizeResponse::Book(summary)
+    } else {
+        let summary = docs::summarize_pdf(&state.gemini, &path, &options)
+            .await
+            .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+        // Record usage
+        let event = UsageEvent::new("gemini-2.5-pro", kind, 0, 0, true);
+        if let Err(e) = state.quota.record_event(event).await {
+            error!("Failed to record usage event: {}", e);
+        }
+
+        DocsSummarizeResponse::Document(summary)
+    };
+
+    info!("Document summarization successful");
+    Ok(Json(response))
+}
+
+// === Repo Summarization Types ===
+
+/// Request for repo summarization
+#[derive(Debug, Clone, Deserialize)]
+pub struct RepoSummaryRequest {
+    /// Path to the repository
+    pub path: String,
+    /// Maximum files to process (optional)
+    #[serde(default)]
+    pub max_files: Option<u32>,
+}
+
+/// Repo summarization endpoint
+#[instrument(skip(state, request), fields(path = %request.path))]
+async fn summarize_repo(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<RepoSummaryRequest>,
+) -> Result<Json<RepoSummary>, AppError> {
+    info!("Received repo summarization request");
+
+    let path = PathBuf::from(&request.path);
+
+    if !path.exists() {
+        return Err(AppError::InvalidRequest(format!(
+            "Path not found: {}",
+            request.path
+        )));
+    }
+
+    if !path.is_dir() {
+        return Err(AppError::InvalidRequest(format!(
+            "Path is not a directory: {}",
+            request.path
+        )));
+    }
+
+    // Build options
+    let mut options = RepoOptions::default();
+    if let Some(max_files) = request.max_files {
+        options = options.with_max_files(max_files);
+    }
+
+    // Check quota
+    state
+        .quota
+        .check_before_request(&RequestKind::RepoSummary, "gemini-2.5-pro")
+        .await?;
+
+    let summary = repo::summarize_repo(&state.gemini, &path, &options)
+        .await
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    // Record usage
+    let event = UsageEvent::new("gemini-2.5-pro", RequestKind::RepoSummary, 0, 0, true);
+    if let Err(e) = state.quota.record_event(event).await {
+        error!("Failed to record usage event: {}", e);
+    }
+
+    info!("Repo summarization successful");
+    Ok(Json(summary))
 }
 
 /// Convert chat messages to a prompt string
