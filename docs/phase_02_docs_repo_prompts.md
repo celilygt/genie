@@ -114,25 +114,25 @@ Respond with JSON:
   }
   ```
 
-* [ ] **2.2** Implement heuristic detection:
+* [x] **2.2** Implement heuristic detection:
 
-  * [ ] Compute font size histogram for entire document.
-  * [ ] Infer body font size as the most frequent size.
-  * [ ] Collect `ChapterCandidate`s where:
+  * [x] Compute font size histogram for entire document.
+  * [x] Infer body font size as the most frequent size.
+  * [x] Collect `ChapterCandidate`s where:
 
     * `font_size` is significantly greater than body size (e.g., +2pt or configurable factor).
     * Or `bold == true`.
-  * [ ] Optionally apply regex filtering:
+  * [x] Optionally apply regex filtering:
 
     * Titles matching `^Chapter \d+`, `^Section \d+`, roman numerals, etc.
 
-* [ ] **2.3** Implement function:
+* [x] **2.3** Implement function:
 
   ```rust
   fn detect_chapter_candidates(doc: &PdfDocument) -> Vec<ChapterCandidate>
   ```
 
-* [ ] **2.4** Implement Gemini refinement:
+* [x] **2.4** Implement Gemini refinement:
 
   ```rust
   async fn refine_chapters_with_gemini(
@@ -142,13 +142,13 @@ Respond with JSON:
   ) -> Result<Vec<Chapter>, GeminiError>
   ```
 
-  * [ ] Build a compact prompt to Gemini:
+  * [x] Build a compact prompt to Gemini:
 
     * Include ToC (if detectable) + candidate list.
     * Ask for JSON with chapters `[ { "title", "start_page", "end_page" } ]`.
-  * [ ] Parse and validate JSON into `Chapter`.
+  * [x] Parse and validate JSON into `Chapter`.
 
-* [ ] **2.5** Implement a unified function:
+* [x] **2.5** Implement a unified function:
 
   ```rust
   async fn detect_chapters(doc: &PdfDocument, client: &GeminiClient) -> Result<Vec<Chapter>, Error>
@@ -156,9 +156,9 @@ Respond with JSON:
 
 #### Acceptance Criteria
 
-* [ ] On a test PDF with clear “Chapter 1, 2, 3” headings, `detect_chapter_candidates` produces candidates with correct page indices.
-* [ ] `refine_chapters_with_gemini` returns a list of `Chapter` with non-overlapping sequential ranges that cover the book.
-* [ ] On a PDF without obvious chapters, function might return 0 or 1 chapter gracefully (fallback behavior documented).
+* [x] On a test PDF with clear “Chapter 1, 2, 3” headings, `detect_chapter_candidates` produces candidates with correct page indices.
+* [x] `refine_chapters_with_gemini` returns a list of `Chapter` with non-overlapping sequential ranges that cover the book.
+* [x] On a PDF without obvious chapters, function might return 0 or 1 chapter gracefully (fallback behavior documented).
 
 #### Auto-Testing Prompt
 
@@ -189,7 +189,7 @@ Return JSON:
 
 #### 3.1 Shared data models
 
-* [ ] Define summary structs in `genie-core::docs`:
+* [x] Define summary structs in `genie-core::docs`:
 
   ```rust
   struct ChapterSummary {
@@ -218,55 +218,55 @@ Return JSON:
 
 #### 3.2 `genie summarize-pdf <file>`
 
-* [ ] Add subcommand to CLI:
+* [x] Add subcommand to CLI:
 
-  * [ ] Options:
+  * [x] Options:
 
     * `--style`
     * `--language`
     * `--format json|markdown|both`
     * `--out <path>`
     * `--prompt-id <prompt>` or `--prompt-file`
-* [ ] Implementation:
+* [x] Implementation:
 
-  * [ ] Load `PdfDocument`.
-  * [ ] Extract full text.
-  * [ ] Build summarization prompt, optionally using templates (if already wired).
-  * [ ] Call Gemini to get `DocumentSummary` JSON.
-  * [ ] Serialize to JSON file if requested.
-  * [ ] Generate Markdown if requested:
+  * [x] Load `PdfDocument`.
+  * [x] Extract full text.
+  * [x] Build summarization prompt, optionally using templates (if already wired).
+  * [x] Call Gemini to get `DocumentSummary` JSON.
+  * [x] Serialize to JSON file if requested.
+  * [x] Generate Markdown if requested:
 
     * Title, summary, bullet points, etc.
 
 #### 3.3 `genie summarize-book <file>`
 
-* [ ] Add subcommand with options:
+* [x] Add subcommand with options:
 
-  * [ ] `--style`, `--language`, `--format`, `--out`, `--prompt-id`, etc.
-* [ ] Implementation pipeline:
+  * [x] `--style`, `--language`, `--format`, `--out`, `--prompt-id`, etc.
+* [x] Implementation pipeline:
 
-  * [ ] Load `PdfDocument`.
-  * [ ] Detect chapters (`detect_chapters`).
-  * [ ] For each `Chapter`:
+  * [x] Load `PdfDocument`.
+  * [x] Detect chapters (`detect_chapters`).
+  * [x] For each `Chapter`:
 
     * Extract text range via `pages_text_range`.
     * If text exceeds `max_chunk_tokens`, split into smaller chunks.
     * For each chunk, call Gemini with a summarization prompt.
     * Aggregate chunk-level results into one `ChapterSummary` via another Gemini call.
-  * [ ] Once all chapters summarized:
+  * [x] Once all chapters summarized:
 
     * Call Gemini with all chapter summaries to produce `global_summary` + `reading_roadmap`.
-  * [ ] Combine into `BookSummary`.
-  * [ ] Save JSON and/or Markdown.
+  * [x] Combine into `BookSummary`.
+  * [x] Save JSON and/or Markdown.
 
 #### Acceptance Criteria
 
-* [ ] `genie summarize-pdf sample.pdf` runs to completion and creates an output file.
-* [ ] `genie summarize-book sample_book.pdf` runs to completion and:
+* [x] `genie summarize-pdf sample.pdf` runs to completion and creates an output file.
+* [x] `genie summarize-book sample_book.pdf` runs to completion and:
 
   * Produces a JSON file matching `BookSummary` structure.
   * Produces readable Markdown with chapter sections.
-* [ ] For a small test book where content is known, summaries are coherent and references to chapters match roughly the original.
+* [x] For a small test book where content is known, summaries are coherent and references to chapters match roughly the original.
 
 #### Auto-Testing Prompt
 
@@ -296,14 +296,14 @@ Return a JSON report with:
 
 **Goal:** Summarize a code repository’s structure and responsibilities.
 
-* [ ] **4.1** Implement `genie-core::repo` module:
+* [x] **4.1** Implement `genie-core::repo` module:
 
-  * [ ] Use `walkdir` to scan directory.
-  * [ ] Respect `.gitignore` (using `ignore` crate).
-  * [ ] Identify text files by extension (`.rs`, `.ts`, `.js`, `.py`, etc.).
-  * [ ] Group files by directory & language.
+  * [x] Use `walkdir` to scan directory.
+  * [x] Respect `.gitignore` (using `ignore` crate).
+  * [x] Identify text files by extension (`.rs`, `.ts`, `.js`, `.py`, etc.).
+  * [x] Group files by directory & language.
 
-* [ ] **4.2** Define data types:
+* [x] **4.2** Define data types:
 
   ```rust
   struct FileSnippet {
@@ -330,31 +330,31 @@ Return a JSON report with:
   }
   ```
 
-* [ ] **4.3** Implement chunking:
+* [x] **4.3** Implement chunking:
 
-  * [ ] Concatenate files into `RepoChunk`s that roughly fit within context limits.
-  * [ ] For each chunk, call Gemini with a prompt:
+  * [x] Concatenate files into `RepoChunk`s that roughly fit within context limits.
+  * [x] For each chunk, call Gemini with a prompt:
 
     * “Summarize the purpose of these files and their relationships.”
-  * [ ] Aggregate chunk-level summaries into `RepoSummary` via another Gemini call.
+  * [x] Aggregate chunk-level summaries into `RepoSummary` via another Gemini call.
 
-* [ ] **4.4** Add CLI command `genie repo-summary [path]`:
+* [x] **4.4** Add CLI command `genie repo-summary [path]`:
 
-  * [ ] Options:
+  * [x] Options:
 
     * `--out <path>`
     * `--format json|markdown`
     * `--max-files` (optional limit for tests)
-  * [ ] Output JSON and/or Markdown.
+  * [x] Output JSON and/or Markdown.
 
 #### Acceptance Criteria
 
-* [ ] Running `genie repo-summary .` on a small test repo:
+* [x] Running `genie repo-summary .` on a small test repo:
 
   * Succeeds without panic.
   * Outputs a JSON or Markdown summary.
-* [ ] For a known simple repo, summary mentions major directories and modules correctly (manually verifiable).
-* [ ] `.gitignore` is respected (ignored files are not read).
+* [x] For a known simple repo, summary mentions major directories and modules correctly (manually verifiable).
+* [x] `.gitignore` is respected (ignored files are not read).
 
 #### Auto-Testing Prompt
 
@@ -387,8 +387,8 @@ Return a JSON object:
 
 #### 5.1 Storage Convention
 
-* [ ] Store templates in `~/.genie/prompts/*.prompt.md`.
-* [ ] Use YAML frontmatter + Markdown body e.g.:
+* [x] Store templates in `~/.genie/prompts/*.prompt.md`.
+* [x] Use YAML frontmatter + Markdown body e.g.:
 
   ```yaml
   name: "book-summary"
@@ -415,9 +415,9 @@ Return a JSON object:
 
 #### 5.2 Parser & Template Engine
 
-* [ ] **5.2.1** Add YAML parser (`serde_yaml`) and frontmatter splitting logic.
+* [x] **5.2.1** Add YAML parser (`serde_yaml`) and frontmatter splitting logic.
 
-* [ ] **5.2.2** Define internal structs:
+* [x] **5.2.2** Define internal structs:
 
   ```rust
   struct PromptTemplate {
@@ -436,14 +436,14 @@ Return a JSON object:
   }
   ```
 
-* [ ] **5.2.3** Use `tera` (or similar) for interpolation:
+* [x] **5.2.3** Use `tera` (or similar) for interpolation:
 
-  * [ ] Render context from supplied variables and file contents.
-  * [ ] Special handling:
+  * [x] Render context from supplied variables and file contents.
+  * [x] Special handling:
 
     * For `type: file`, read file and expose as `file_content` or `<name>_content`.
 
-* [ ] **5.2.4** Implement loader:
+* [x] **5.2.4** Implement loader:
 
   ```rust
   fn load_prompt_templates() -> Result<Vec<PromptTemplate>, Error>
@@ -452,26 +452,26 @@ Return a JSON object:
 
 #### 5.3 CLI for templates
 
-* [ ] `genie templates list`
+* [x] `genie templates list`
 
-  * [ ] Prints template names and descriptions.
-* [ ] `genie templates show <name>`
+  * [x] Prints template names and descriptions.
+* [x] `genie templates show <name>`
 
-  * [ ] Prints frontmatter and body.
-* [ ] `genie templates run <name> --var key=value --file key=path`
+  * [x] Prints frontmatter and body.
+* [x] `genie templates run <name> --var key=value --file key=path`
 
-  * [ ] Parse template.
-  * [ ] Build variable map.
-  * [ ] Render body.
-  * [ ] Call Gemini with rendered prompt and template’s `model`.
-  * [ ] Output response (text or json depending on template).
+  * [x] Parse template.
+  * [x] Build variable map.
+  * [x] Render body.
+  * [x] Call Gemini with rendered prompt and template’s `model`.
+  * [x] Output response (text or json depending on template).
 
 #### Acceptance Criteria
 
-* [ ] At least one example `.prompt.md` lives in repo’s test fixtures.
-* [ ] `genie templates list` shows installed templates.
-* [ ] `genie templates run example-template --var style=detailed --file file=tests/data/sample.txt` produces a response.
-* [ ] If required input variables are missing, `run` fails with a clear error.
+* [x] At least one example `.prompt.md` lives in repo’s test fixtures.
+* [x] `genie templates list` shows installed templates.
+* [x] `genie templates run example-template --var style=detailed --file file=tests/data/sample.txt` produces a response.
+* [x] If required input variables are missing, `run` fails with a clear error.
 
 #### Auto-Testing Prompt
 
@@ -501,7 +501,7 @@ Return JSON:
 
 #### 6.1 Docs endpoint
 
-* [ ] Add `POST /v1/docs/summarize`:
+* [x] Add `POST /v1/docs/summarize`:
 
   * Body (multipart or JSON depending on design):
 
@@ -511,14 +511,14 @@ Return JSON:
 
     * `mode: "pdf" | "book"`
     * `style`, `language`, `format`.
-* [ ] Handler behavior:
+* [x] Handler behavior:
 
-  * [ ] Call respective core functions (`summarize_pdf` or `summarize_book`).
-  * [ ] Return JSON summary directly in response (do not only write file).
+  * [x] Call respective core functions (`summarize_pdf` or `summarize_book`).
+  * [x] Return JSON summary directly in response (do not only write file).
 
 #### 6.2 Repo endpoint
 
-* [ ] Add `POST /v1/repo/summary`:
+* [x] Add `POST /v1/repo/summary`:
 
   * JSON body:
 
@@ -530,9 +530,9 @@ Return JSON:
 
 #### Acceptance Criteria
 
-* [ ] `POST /v1/docs/summarize` with valid payload returns JSON with summary key fields.
-* [ ] `POST /v1/repo/summary` returns `RepoSummary` structure.
-* [ ] Errors (invalid file/path) are returned as helpful JSON errors with appropriate HTTP status.
+* [x] `POST /v1/docs/summarize` with valid payload returns JSON with summary key fields.
+* [x] `POST /v1/repo/summary` returns `RepoSummary` structure.
+* [x] Errors (invalid file/path) are returned as helpful JSON errors with appropriate HTTP status.
 
 #### Auto-Testing Prompt
 
@@ -564,23 +564,23 @@ Return JSON:
 
 **Goal:** Make new features discoverable and testable.
 
-* [ ] **7.1** Update README:
+* [x] **7.1** Update README:
 
-  * [ ] Add usage examples for:
+  * [x] Add usage examples for:
 
     * `summarize-pdf`, `summarize-book`.
     * `repo-summary`.
     * `templates list/run`.
-  * [ ] Document the `.prompt.md` spec with frontmatter example.
-* [ ] **7.2** Add sample prompt templates in a `examples/prompts` folder.
-* [ ] **7.3** Add example commands in a `docs/USAGE.md` for Phase 2 features.
-* [ ] **7.4** Add integration tests or scripted examples (e.g., shell scripts) that run end-to-end flows with test PDFs/repos.
+  * [x] Document the `.prompt.md` spec with frontmatter example.
+* [x] **7.2** Add sample prompt templates in a `examples/prompts` folder.
+* [x] **7.3** Add example commands in a `docs/USAGE.md` for Phase 2 features.
+* [x] **7.4** Add integration tests or scripted examples (e.g., shell scripts) that run end-to-end flows with test PDFs/repos.
 
 #### Acceptance Criteria
 
-* [ ] README clearly explains how to run new commands.
-* [ ] At least one working example prompt file is referenced in the docs.
-* [ ] A new contributor can reproduce PDF and repo summaries by following docs only.
+* [x] README clearly explains how to run new commands.
+* [x] At least one working example prompt file is referenced in the docs.
+* [x] A new contributor can reproduce PDF and repo summaries by following docs only.
 
 #### Auto-Testing Prompt
 

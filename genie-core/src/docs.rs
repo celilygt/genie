@@ -5,7 +5,8 @@
 
 use crate::gemini::{GeminiClient, GeminiError, GeminiRequest};
 use crate::pdf::{
-    candidates_to_chapters, detect_chapter_candidates, Chapter, PdfDocument, PdfError,
+    candidates_to_chapters, detect_chapter_candidates, detect_chapters, Chapter, PdfDocument,
+    PdfError,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -62,6 +63,8 @@ pub struct SummarizeOptions {
     pub language: String,
     /// Maximum chunk size in tokens
     pub max_chunk_tokens: u32,
+    /// Use Gemini for chapter detection refinement
+    pub use_gemini_chapters: bool,
 }
 
 impl SummarizeOptions {
@@ -70,6 +73,7 @@ impl SummarizeOptions {
             style: SummaryStyle::Concise,
             language: "en".to_string(),
             max_chunk_tokens: 4000,
+            use_gemini_chapters: false,
         }
     }
 
@@ -85,6 +89,11 @@ impl SummarizeOptions {
 
     pub fn with_max_chunk_tokens(mut self, tokens: u32) -> Self {
         self.max_chunk_tokens = tokens;
+        self
+    }
+
+    pub fn with_gemini_chapters(mut self, use_gemini: bool) -> Self {
+        self.use_gemini_chapters = use_gemini;
         self
     }
 }
@@ -195,8 +204,18 @@ pub async fn summarize_book(
     );
 
     // Detect chapters
-    let candidates = detect_chapter_candidates(&doc);
-    let chapters = candidates_to_chapters(&candidates, doc.page_count());
+    let chapters = if options.use_gemini_chapters {
+        // Use Gemini-powered chapter detection
+        detect_chapters(&doc, client).await.unwrap_or_else(|_| {
+            // Fall back to heuristic detection on error
+            let candidates = detect_chapter_candidates(&doc);
+            candidates_to_chapters(&candidates, doc.page_count())
+        })
+    } else {
+        // Use heuristic detection only
+        let candidates = detect_chapter_candidates(&doc);
+        candidates_to_chapters(&candidates, doc.page_count())
+    };
 
     info!("Detected {} chapters", chapters.len());
 

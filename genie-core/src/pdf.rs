@@ -487,6 +487,177 @@ pub fn candidates_to_chapters(candidates: &[ChapterCandidate], total_pages: u32)
     chapters
 }
 
+/// Refine chapter candidates using Gemini for better accuracy
+///
+/// This function takes heuristically detected candidates and asks Gemini
+/// to verify and refine the chapter structure.
+pub async fn refine_chapters_with_gemini(
+    client: &crate::gemini::GeminiClient,
+    candidates: &[ChapterCandidate],
+    total_pages: u32,
+    toc_text: Option<&str>,
+) -> Result<Vec<Chapter>, crate::gemini::GeminiError> {
+    use crate::gemini::GeminiRequest;
+
+    if candidates.is_empty() {
+        // No candidates to refine, return single chapter for whole document
+        return Ok(vec![Chapter {
+            id: 1,
+            title: "Document".to_string(),
+            start_page: 1,
+            end_page: total_pages,
+        }]);
+    }
+
+    // Build candidate list for the prompt
+    let candidates_text: Vec<String> = candidates
+        .iter()
+        .map(|c| {
+            format!(
+                "- Page {}: \"{}\" (font_size: {:.1}, bold: {}, confidence: {:.2})",
+                c.page_index + 1,
+                c.title,
+                c.font_size,
+                c.bold,
+                c.confidence
+            )
+        })
+        .collect();
+
+    let toc_section = toc_text
+        .map(|t| format!("\nTable of Contents (if detected):\n{}\n", t))
+        .unwrap_or_default();
+
+    let prompt = format!(
+        r#"Analyze these chapter heading candidates from a PDF document and return the confirmed chapters.
+{}
+Chapter candidates detected:
+{}
+
+Total pages in document: {}
+
+Based on this information, determine the actual chapter structure.
+Return ONLY a valid JSON array with chapters, in this exact format:
+[
+  {{"id": 1, "title": "Chapter title", "start_page": 1, "end_page": 10}},
+  {{"id": 2, "title": "Chapter title", "start_page": 11, "end_page": 25}}
+]
+
+Rules:
+- Chapter page ranges should be sequential and non-overlapping
+- Page numbers are 1-based
+- The last chapter's end_page should be {}
+- If candidates don't look like real chapters, return a single chapter covering the whole document
+- Clean up chapter titles (remove extra whitespace, fix capitalization if needed)
+
+Return ONLY the JSON array, no other text."#,
+        toc_section,
+        candidates_text.join("\n"),
+        total_pages,
+        total_pages
+    );
+
+    let request = GeminiRequest::new("gemini-2.5-pro", &prompt).with_json_output();
+    let response = client.call_json(&request).await?;
+
+    // Parse the JSON response
+    let json_text = extract_json_from_response(&response.text);
+    let parsed: Vec<serde_json::Value> =
+        serde_json::from_str(&json_text).unwrap_or_else(|_| Vec::new());
+
+    let mut chapters: Vec<Chapter> = parsed
+        .into_iter()
+        .filter_map(|v| {
+            Some(Chapter {
+                id: v["id"].as_u64()? as u32,
+                title: v["title"].as_str()?.to_string(),
+                start_page: v["start_page"].as_u64()? as u32,
+                end_page: v["end_page"].as_u64()? as u32,
+            })
+        })
+        .collect();
+
+    // If parsing failed, fall back to heuristic conversion
+    if chapters.is_empty() {
+        chapters = candidates_to_chapters(candidates, total_pages);
+    }
+
+    Ok(chapters)
+}
+
+/// Unified function to detect chapters using both heuristics and Gemini refinement
+pub async fn detect_chapters(
+    doc: &PdfDocument,
+    client: &crate::gemini::GeminiClient,
+) -> Result<Vec<Chapter>, crate::gemini::GeminiError> {
+    let candidates = detect_chapter_candidates(doc);
+    let total_pages = doc.page_count();
+
+    // Try to find ToC text (usually in first few pages)
+    let toc_text = find_toc_text(doc);
+
+    refine_chapters_with_gemini(client, &candidates, total_pages, toc_text.as_deref()).await
+}
+
+/// Try to find Table of Contents text in the document
+fn find_toc_text(doc: &PdfDocument) -> Option<String> {
+    // Look in first 10 pages for ToC
+    let search_pages = doc.pages.iter().take(10);
+
+    for page in search_pages {
+        let page_text = page.text().to_lowercase();
+
+        // Check for common ToC indicators
+        if page_text.contains("table of contents")
+            || page_text.contains("contents")
+            || page_text.contains("index")
+        {
+            // Return the full page text as potential ToC
+            return Some(page.text());
+        }
+    }
+
+    None
+}
+
+/// Extract JSON from a response that might contain markdown fences
+fn extract_json_from_response(text: &str) -> String {
+    let trimmed = text.trim();
+
+    // Direct JSON
+    if trimmed.starts_with('[') || trimmed.starts_with('{') {
+        return trimmed.to_string();
+    }
+
+    // Extract from markdown fence
+    if let Some(start) = trimmed.find("```json") {
+        let after = &trimmed[start + 7..];
+        if let Some(end) = after.find("```") {
+            return after[..end].trim().to_string();
+        }
+    }
+
+    if let Some(start) = trimmed.find("```") {
+        let after = &trimmed[start + 3..];
+        if let Some(end) = after.find("```") {
+            let content = after[..end].trim();
+            if let Some(newline) = content.find('\n') {
+                return content[newline + 1..].trim().to_string();
+            }
+            return content.to_string();
+        }
+    }
+
+    // Try to find array or object
+    if let Some(start) = trimmed.find('[') {
+        if let Some(end) = trimmed.rfind(']') {
+            return trimmed[start..=end].to_string();
+        }
+    }
+
+    trimmed.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
