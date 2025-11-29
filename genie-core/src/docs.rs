@@ -543,7 +543,17 @@ fn extract_json(text: &str) -> String {
     // Try to find JSON object or array
     if let Some(start) = trimmed.find('{') {
         if let Some(end) = trimmed.rfind('}') {
-            return trimmed[start..=end].to_string();
+            if start <= end {
+                return trimmed[start..=end].to_string();
+            }
+        }
+    }
+
+    if let Some(start) = trimmed.find('[') {
+        if let Some(end) = trimmed.rfind(']') {
+            if start <= end {
+                return trimmed[start..=end].to_string();
+            }
         }
     }
 
@@ -659,6 +669,18 @@ mod tests {
         // With text before
         let json = extract_json("Here is the result: {\"key\": \"value\"}");
         assert_eq!(json, r#"{"key": "value"}"#);
+
+        // Malformed: closing bracket before opening (should not panic)
+        let json = extract_json("error: } not found { here");
+        assert!(!json.is_empty()); // Should return something, not panic
+
+        // Malformed: closing array bracket before opening
+        let json = extract_json("some ] text [ more");
+        assert!(!json.is_empty()); // Should return something, not panic
+
+        // Array extraction
+        let json = extract_json("[1, 2, 3]");
+        assert_eq!(json, "[1, 2, 3]");
     }
 
     #[test]

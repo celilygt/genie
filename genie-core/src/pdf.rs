@@ -651,7 +651,19 @@ fn extract_json_from_response(text: &str) -> String {
     // Try to find array or object
     if let Some(start) = trimmed.find('[') {
         if let Some(end) = trimmed.rfind(']') {
-            return trimmed[start..=end].to_string();
+            // Only slice if start <= end to avoid panic
+            if start <= end {
+                return trimmed[start..=end].to_string();
+            }
+        }
+    }
+
+    // Try to find object
+    if let Some(start) = trimmed.find('{') {
+        if let Some(end) = trimmed.rfind('}') {
+            if start <= end {
+                return trimmed[start..=end].to_string();
+            }
         }
     }
 
