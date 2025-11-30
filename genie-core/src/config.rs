@@ -181,6 +181,11 @@ impl Config {
         Self::genie_dir().map(|d| d.join("prompts"))
     }
 
+    /// Returns the default RAG database path
+    pub fn default_rag_db_path() -> Option<PathBuf> {
+        Self::genie_dir().map(|d| d.join("rag.db"))
+    }
+
     /// Load configuration from the default path with environment overrides
     pub fn load() -> Result<Self, ConfigError> {
         let mut config = if let Some(path) = Self::default_config_path() {

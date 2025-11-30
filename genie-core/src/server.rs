@@ -11,6 +11,7 @@ use crate::model::{
     QuotaStatus, RequestKind, Usage,
 };
 use crate::quota::{QuotaError, QuotaManager, UsageEvent};
+use crate::rag::{IngestOptions, QueryOptions, RagCollection, RagManager, RagQueryResponse};
 use crate::repo::{self, RepoOptions, RepoSummary};
 use axum::{
     extract::State,
@@ -63,6 +64,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/docs/summarize", post(summarize_docs))
         // Repo summarization endpoint
         .route("/v1/repo/summary", post(summarize_repo))
+        // RAG endpoints
+        .route("/v1/rag/collections", get(rag_list_collections))
+        .route("/v1/rag/ingest", post(rag_ingest))
+        .route("/v1/rag/query", post(rag_query))
         // Health & status
         .route("/health", get(health_check))
         .route("/", get(root))
@@ -84,6 +89,9 @@ async fn root() -> impl IntoResponse {
             "quota": "/v1/quota",
             "docs_summarize": "/v1/docs/summarize",
             "repo_summary": "/v1/repo/summary",
+            "rag_collections": "/v1/rag/collections",
+            "rag_ingest": "/v1/rag/ingest",
+            "rag_query": "/v1/rag/query",
             "health": "/health"
         }
     }))
@@ -492,6 +500,132 @@ async fn summarize_repo(
 
     info!("Repo summarization successful");
     Ok(Json(summary))
+}
+
+// === RAG Endpoints ===
+
+/// Request for RAG ingest
+#[derive(Debug, Clone, Deserialize)]
+pub struct RagIngestRequest {
+    pub collection_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub pattern: Option<String>,
+    #[serde(default)]
+    pub chunk_size: Option<usize>,
+}
+
+/// Response for RAG ingest
+#[derive(Debug, Clone, Serialize)]
+pub struct RagIngestResponse {
+    pub documents_ingested: u32,
+    pub chunks_created: u32,
+    pub errors: Vec<String>,
+}
+
+/// Request for RAG query
+#[derive(Debug, Clone, Deserialize)]
+pub struct RagQueryRequest {
+    pub collection_id: String,
+    pub question: String,
+    #[serde(default)]
+    pub top_k: Option<usize>,
+    #[serde(default)]
+    pub return_sources: Option<bool>,
+}
+
+/// List RAG collections
+#[instrument(skip(_state))]
+async fn rag_list_collections(
+    State(_state): State<Arc<AppState>>,
+) -> Result<Json<Vec<RagCollection>>, AppError> {
+    let db_path = Config::default_rag_db_path()
+        .ok_or_else(|| AppError::InternalError("Could not determine RAG database path".to_string()))?;
+
+    let manager = RagManager::new(&db_path)
+        .await
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    let collections = manager
+        .list_collections()
+        .await
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    Ok(Json(collections))
+}
+
+/// Ingest documents into RAG collection
+#[instrument(skip(state, request), fields(collection = %request.collection_id, path = %request.path))]
+async fn rag_ingest(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<RagIngestRequest>,
+) -> Result<Json<RagIngestResponse>, AppError> {
+    info!("Received RAG ingest request");
+
+    let db_path = Config::default_rag_db_path()
+        .ok_or_else(|| AppError::InternalError("Could not determine RAG database path".to_string()))?;
+
+    let manager = RagManager::new(&db_path)
+        .await
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    let path = PathBuf::from(&request.path);
+    if !path.exists() {
+        return Err(AppError::InvalidRequest(format!("Path not found: {}", request.path)));
+    }
+
+    let mut options = IngestOptions::default();
+    if let Some(p) = &request.pattern {
+        options.pattern = Some(p.clone());
+    }
+    if let Some(size) = request.chunk_size {
+        options.chunk_size = size;
+    }
+
+    let stats = manager
+        .ingest(&request.collection_id, &path, &options, &state.gemini)
+        .await
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    info!("RAG ingest complete: {} docs, {} chunks", stats.documents_ingested, stats.chunks_created);
+
+    Ok(Json(RagIngestResponse {
+        documents_ingested: stats.documents_ingested,
+        chunks_created: stats.chunks_created,
+        errors: stats.errors,
+    }))
+}
+
+/// Query RAG collection
+#[instrument(skip(state, request), fields(collection = %request.collection_id))]
+async fn rag_query(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<RagQueryRequest>,
+) -> Result<Json<RagQueryResponse>, AppError> {
+    info!("Received RAG query request");
+
+    let db_path = Config::default_rag_db_path()
+        .ok_or_else(|| AppError::InternalError("Could not determine RAG database path".to_string()))?;
+
+    let manager = RagManager::new(&db_path)
+        .await
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    let mut options = QueryOptions::default();
+    if let Some(k) = request.top_k {
+        options.top_k = k;
+    }
+    if let Some(return_sources) = request.return_sources {
+        options.return_sources = return_sources;
+    }
+
+    let response = manager
+        .query(&request.collection_id, &request.question, &options, &state.gemini)
+        .await
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    info!("RAG query complete");
+    Ok(Json(response))
 }
 
 /// Convert chat messages to a prompt string

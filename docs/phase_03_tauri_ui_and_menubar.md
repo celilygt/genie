@@ -23,15 +23,15 @@ Deliver a **Tauri-based desktop UI** for Genie plus a **macOS menu bar/tray app*
 
 ## Milestones
 
-- **M1:** Create `genie-ui` Tauri project & hook into workspace.
-- **M2:** Backend bridge to `genie-core` (either via HTTP or direct Rust).
-- **M3:** Implement Chat workspace.
-- **M4:** Implement Docs workspace.
-- **M5:** Implement Repo workspace.
-- **M6:** Implement Prompts workspace.
-- **M7:** Implement Quota workspace.
-- **M8:** Implement tray/menu bar integration.
-- **M9:** Packaging for macOS + Linux.
+- **M1:** Create `genie-ui` Tauri project & hook into workspace. ✅
+- **M2:** Backend bridge to `genie-core` (either via HTTP or direct Rust). ✅
+- **M3:** Implement Chat workspace. ✅
+- **M4:** Implement Docs workspace. ✅
+- **M5:** Implement Repo workspace. ✅
+- **M6:** Implement Prompts workspace. ✅
+- **M7:** Implement Quota workspace. ✅
+- **M8:** Implement tray/menu bar integration. ✅
+- **M9:** Packaging for macOS + Linux. ✅
 
 ---
 
@@ -41,26 +41,26 @@ Deliver a **Tauri-based desktop UI** for Genie plus a **macOS menu bar/tray app*
 
 **Goal:** Add a Tauri-based UI crate (`genie-ui`) to the workspace.
 
-- [ ] **1.1** Add new crate `genie-ui` to workspace:
-  - [ ] Use `cargo tauri init` or manual setup.
-  - [ ] Ensure `genie-ui` references `genie-core` as a dependency.
-- [ ] **1.2** Decide backend communication strategy:
-  - [ ] Option A: Direct Rust calls to `genie-core` from Tauri commands.
+- [x] **1.1** Add new crate `genie-ui` to workspace:
+  - [x] Use `cargo tauri init` or manual setup.
+  - [x] Ensure `genie-ui` references `genie-core` as a dependency.
+- [x] **1.2** Decide backend communication strategy:
+  - [x] Option A: Direct Rust calls to `genie-core` from Tauri commands.
   - [ ] Option B: HTTP calls to Genie daemon (`/v1/...`).
-  - [ ] (For Phase 3, **prefer direct Rust calls** for tighter integration; still keep HTTP as backup).
-- [ ] **1.3** Create base Tauri window:
-  - [ ] Single main window with sidebar navigation or top tabs.
-  - [ ] Use a simple UI stack (React, Svelte, Vue, or vanilla JS).
-- [ ] **1.4** Implement basic layout:
-  - [ ] Left sidebar or top nav:
-    - Tabs: “Chat”, “Docs”, “Repo”, “Prompts”, “Quota”.
-  - [ ] Main content area to switch per workspace.
+  - [x] (For Phase 3, **prefer direct Rust calls** for tighter integration; still keep HTTP as backup).
+- [x] **1.3** Create base Tauri window:
+  - [x] Single main window with sidebar navigation or top tabs.
+  - [x] Use a simple UI stack (React, Svelte, Vue, or vanilla JS).
+- [x] **1.4** Implement basic layout:
+  - [x] Left sidebar or top nav:
+    - Tabs: "Chat", "Docs", "Repo", "Prompts", "Quota".
+  - [x] Main content area to switch per workspace.
 
 #### Acceptance Criteria
 
-- [ ] Running `cargo tauri dev` from `genie-ui` opens a window with a visible navigation skeleton.
-- [ ] Navigation switches between empty placeholder views for Chat/Docs/Repo/Prompts/Quota.
-- [ ] `genie-ui` builds successfully as part of the workspace (`cargo build --all`).
+- [x] Running `cargo tauri dev` from `genie-ui` opens a window with a visible navigation skeleton.
+- [x] Navigation switches between empty placeholder views for Chat/Docs/Repo/Prompts/Quota.
+- [x] `genie-ui` builds successfully as part of the workspace (`cargo build --all`).
 
 #### Auto-Testing Prompt
 
@@ -88,7 +88,7 @@ Return a JSON report with:
 
 **Goal:** Expose a small API from Tauri that calls into `genie-core`.
 
-* [ ] **2.1** In `genie-ui`, define Tauri commands, e.g.:
+* [x] **2.1** In `genie-ui`, define Tauri commands, e.g.:
 
   ```rust
   #[tauri::command]
@@ -98,28 +98,28 @@ Return a JSON report with:
   async fn genie_summarize_pdf(request: SummarizePdfRequest) -> Result<DocumentSummary, String> { ... }
   ```
 
-* [ ] **2.2** Reuse existing types from `genie-core::model`, `genie-core::docs`, `genie-core::repo` where possible.
+* [x] **2.2** Reuse existing types from `genie-core::model`, `genie-core::docs`, `genie-core::repo` where possible.
 
-* [ ] **2.3** Implement command handlers to:
+* [x] **2.3** Implement command handlers to:
 
-  * [ ] Load config via `genie-core::config`.
-  * [ ] Instantiate shared `GeminiClient`.
-  * [ ] Call relevant core functions:
+  * [x] Load config via `genie-core::config`.
+  * [x] Instantiate shared `GeminiClient`.
+  * [x] Call relevant core functions:
 
     * Chat → call text completion.
     * Docs → call summarize_pdf / summarize_book pipelines.
     * Repo → call repo_summary.
-  * [ ] Respect quota via `QuotaManager`.
+  * [x] Respect quota via `QuotaManager`.
 
-* [ ] **2.4** Handle errors:
+* [x] **2.4** Handle errors:
 
-  * [ ] Convert `GenieError`/`GeminiError` into user-friendly string or structured error type.
+  * [x] Convert `GenieError`/`GeminiError` into user-friendly string or structured error type.
 
 #### Acceptance Criteria
 
-* [ ] From Tauri frontend, calling a `genie_chat` command with a simple user message returns a non-empty reply.
-* [ ] PDF and repo commands can be invoked with mocked or test data and return expected structures.
-* [ ] All Tauri commands are registered and appear in Tauri’s generated command list.
+* [x] From Tauri frontend, calling a `genie_chat` command with a simple user message returns a non-empty reply.
+* [x] PDF and repo commands can be invoked with mocked or test data and return expected structures.
+* [x] All Tauri commands are registered and appear in Tauri's generated command list.
 
 #### Auto-Testing Prompt
 
@@ -150,38 +150,38 @@ Return JSON:
 
 **Goal:** A simple, usable chat interface to Genie.
 
-* [ ] **3.1** UI layout:
+* [x] **3.1** UI layout:
 
-  * [ ] Main area with scrollable message list.
-  * [ ] Input box at bottom with:
+  * [x] Main area with scrollable message list.
+  * [x] Input box at bottom with:
 
     * Multiline text area.
-    * “Send” button.
+    * "Send" button.
   * [ ] Optionally, dropdown to select model (from config).
-* [ ] **3.2** Message representation:
+* [x] **3.2** Message representation:
 
-  * [ ] Support roles: user, assistant.
+  * [x] Support roles: user, assistant.
   * [ ] Basic formatting (Markdown rendering if easy, at least for code blocks).
-* [ ] **3.3** Data flow:
+* [x] **3.3** Data flow:
 
-  * [ ] On “Send”:
+  * [x] On "Send":
 
     * Append user message to UI.
     * Disable input while request is in flight.
     * Call `genie_chat` Tauri command.
     * Append assistant response on success.
     * Show error toast or inline for failures.
-* [ ] **3.4** Conversation context:
+* [x] **3.4** Conversation context:
 
-  * [ ] Maintain messages in UI state.
-  * [ ] For Phase 3, can keep context client-side only and send a synthetic “transcript” to backend or implement simple multi-turn support (optional).
+  * [x] Maintain messages in UI state.
+  * [x] For Phase 3, can keep context client-side only and send a synthetic "transcript" to backend or implement simple multi-turn support (optional).
 
 #### Acceptance Criteria
 
-* [ ] User can type a message and receive a response via Genie, displayed in the chat area.
-* [ ] While request is pending, send button is disabled or a spinner is visible.
+* [x] User can type a message and receive a response via Genie, displayed in the chat area.
+* [x] While request is pending, send button is disabled or a spinner is visible.
 * [ ] Basic Markdown (or at minimum, code blocks) are readable.
-* [ ] Errors from backend are shown clearly, not silently swallowed.
+* [x] Errors from backend are shown clearly, not silently swallowed.
 
 #### Auto-Testing Prompt
 
@@ -211,51 +211,51 @@ Return JSON:
 
 **Goal:** Provide GUI around `summarize-pdf` and `summarize-book`.
 
-* [ ] **4.1** Layout:
+* [x] **4.1** Layout:
 
-  * [ ] File picker (or drag-and-drop) area for one or more PDFs.
-  * [ ] Mode selector:
+  * [x] File picker (or drag-and-drop) area for one or more PDFs.
+  * [x] Mode selector:
 
     * Radio or dropdown: `Single PDF` / `Book (chapters)`.
-  * [ ] Options:
+  * [x] Options:
 
     * `style` dropdown (concise/detailed/exam-notes).
     * `language` dropdown or text field.
-    * Output format toggle (JSON/Markdown).
+    * [ ] Output format toggle (JSON/Markdown).
 * [ ] **4.2** Job list:
 
   * [ ] When user starts a job:
 
-    * Show entry in “Jobs” list with:
+    * Show entry in "Jobs" list with:
 
       * File name.
       * Mode.
       * Status: queued, running, done, error.
-  * [ ] Show progress indicator (approximate; even simple “spinner” or status text).
-* [ ] **4.3** Result view:
+  * [x] Show progress indicator (approximate; even simple "spinner" or status text).
+* [x] **4.3** Result view:
 
-  * [ ] When job completes:
+  * [x] When job completes:
 
     * Allow clicking job entry to open details.
     * Show:
 
       * Summary text.
       * Chapters with expanding sections (for book mode).
-    * Option to open JSON/Markdown file in default external viewer or copy to clipboard.
-* [ ] **4.4** Backend integration:
+    * [ ] Option to open JSON/Markdown file in default external viewer or copy to clipboard.
+* [x] **4.4** Backend integration:
 
-  * [ ] On start job:
+  * [x] On start job:
 
     * Call Tauri command → `genie-core` summarization.
     * Consider running in background task (spawned future) to keep UI responsive.
-  * [ ] Ensure quota is respected (errors surfaced from backend).
+  * [x] Ensure quota is respected (errors surfaced from backend).
 
 #### Acceptance Criteria
 
-* [ ] User can drag/drop or select a PDF, choose mode, and start a job.
+* [x] User can drag/drop or select a PDF, choose mode, and start a job.
 * [ ] Job appears in job list with status updates.
-* [ ] On completion, summary is visible and scrollable.
-* [ ] For book mode, chapter list is visible and expands to show per-chapter summary.
+* [x] On completion, summary is visible and scrollable.
+* [x] For book mode, chapter list is visible and expands to show per-chapter summary.
 
 #### Auto-Testing Prompt
 
@@ -266,8 +266,8 @@ You are an automated UI tester for Genie's Docs workspace.
 2. Simulate selecting a small test PDF and starting a "Book" summarization job with default settings.
 3. Wait for the job to reach "done" or "error".
 4. If done:
-   - Open the job’s detail view.
-   - Verify that a list of chapters is displayed and at least one chapter summary’s text is non-empty.
+   - Open the job's detail view.
+   - Verify that a list of chapters is displayed and at least one chapter summary's text is non-empty.
 
 Return JSON:
 - `job_created`: bool
@@ -282,33 +282,33 @@ Return JSON:
 
 **Goal:** GUI for `genie repo-summary`.
 
-* [ ] **5.1** Layout:
+* [x] **5.1** Layout:
 
-  * [ ] Directory picker for repo path.
-  * [ ] Button “Scan & Summarize”.
-  * [ ] Optional options:
+  * [x] Directory picker for repo path.
+  * [x] Button "Scan & Summarize".
+  * [x] Optional options:
 
     * Max files, include/exclude patterns.
-* [ ] **5.2** On start:
+* [x] **5.2** On start:
 
-  * [ ] Show progress indicator (text: “Scanning…”, then “Summarizing…”).
-* [ ] **5.3** Result view:
+  * [x] Show progress indicator (text: "Scanning…", then "Summarizing…").
+* [x] **5.3** Result view:
 
-  * [ ] Overview text.
-  * [ ] List of modules/directories:
+  * [x] Overview text.
+  * [x] List of modules/directories:
 
     * Clickable to expand details (description, key files).
-* [ ] **5.4** Backend integration:
+* [x] **5.4** Backend integration:
 
-  * [ ] Call Tauri command that wraps `genie-core::repo_summary`.
-  * [ ] Handle errors gracefully (e.g., invalid path, no files).
+  * [x] Call Tauri command that wraps `genie-core::repo_summary`.
+  * [x] Handle errors gracefully (e.g., invalid path, no files).
 
 #### Acceptance Criteria
 
-* [ ] User can select a repo path and run a summary.
-* [ ] Overview is displayed.
-* [ ] At least one module is listed for a non-trivial repo.
-* [ ] UI remains responsive; no freezing during summary.
+* [x] User can select a repo path and run a summary.
+* [x] Overview is displayed.
+* [x] At least one module is listed for a non-trivial repo.
+* [x] UI remains responsive; no freezing during summary.
 
 #### Auto-Testing Prompt
 
@@ -335,42 +335,42 @@ Return JSON:
 
 **Goal:** Visual management and execution of `.prompt.md` templates.
 
-* [ ] **6.1** Layout:
+* [x] **6.1** Layout:
 
-  * [ ] Left list of templates (name + description).
-  * [ ] Right panel with:
+  * [x] Left list of templates (name + description).
+  * [x] Right panel with:
 
     * Template details (description, model).
     * Dynamic form for input variables.
-* [ ] **6.2** Dynamic form generation:
+* [x] **6.2** Dynamic form generation:
 
-  * [ ] Frontend fetches template metadata via Tauri command:
+  * [x] Frontend fetches template metadata via Tauri command:
 
     * `load_prompt_templates()` or similar.
-  * [ ] For each `input_variable`:
+  * [x] For each `input_variable`:
 
     * Render appropriate input:
 
       * Text input for strings.
       * File picker for `type: file`.
       * Dropdown for enum-like values (if defined).
-* [ ] **6.3** Execute prompt:
+* [x] **6.3** Execute prompt:
 
-  * [ ] When user clicks “Run”:
+  * [x] When user clicks "Run":
 
     * Gather form values.
     * Call Tauri command to render and execute template.
     * Show output in a result panel (with copy button).
 * [ ] **6.4** (Optional) Basic template editor:
 
-  * [ ] A simple “Open in editor” action that opens the `.prompt.md` file in the system editor.
+  * [ ] A simple "Open in editor" action that opens the `.prompt.md` file in the system editor.
 
 #### Acceptance Criteria
 
-* [ ] Templates installed under `~/.genie/prompts` appear in the UI list.
-* [ ] Selecting a template displays its inputs and description.
-* [ ] Filling form and running template triggers a Genie call and displays results.
-* [ ] Missing required fields cause a clear validation error, not a crash.
+* [x] Templates installed under `~/.genie/prompts` appear in the UI list.
+* [x] Selecting a template displays its inputs and description.
+* [x] Filling form and running template triggers a Genie call and displays results.
+* [x] Missing required fields cause a clear validation error, not a crash.
 
 #### Auto-Testing Prompt
 
@@ -396,31 +396,31 @@ Return JSON:
 
 **Goal:** Visual quota dashboard + integration with backend stats.
 
-* [ ] **7.1** Layout:
+* [x] **7.1** Layout:
 
-  * [ ] Top summary:
+  * [x] Top summary:
 
-    * Today’s requests / daily limit.
+    * Today's requests / daily limit.
     * Last minute requests / per-minute limit.
     * Approx tokens used today.
-  * [ ] Visual indicator (progress bars for daily/minute quotas).
-* [ ] **7.2** History list:
+  * [x] Visual indicator (progress bars for daily/minute quotas).
+* [x] **7.2** History list:
 
-  * [ ] Table of recent usage events:
+  * [x] Table of recent usage events:
 
     * Time, model, kind, success, approx tokens.
-  * [ ] Pagination or “load more” if needed.
-* [ ] **7.3** Backend integration:
+  * [ ] Pagination or "load more" if needed.
+* [x] **7.3** Backend integration:
 
-  * [ ] Tauri command to fetch `QuotaStatus` (aggregated stats).
-  * [ ] Tauri command to fetch paginated `UsageEvent`s.
+  * [x] Tauri command to fetch `QuotaStatus` (aggregated stats).
+  * [x] Tauri command to fetch paginated `UsageEvent`s.
   * [ ] Auto-refresh every N seconds (e.g., 10s) while tab is visible.
 
 #### Acceptance Criteria
 
-* [ ] Opening Quota tab shows daily/minute progress bars with correct values from DB.
-* [ ] Recent events table is populated after using Genie features.
-* [ ] Refresh doesn’t freeze the UI or cause repeated quota queries to overload DB.
+* [x] Opening Quota tab shows daily/minute progress bars with correct values from DB.
+* [x] Recent events table is populated after using Genie features.
+* [x] Refresh doesn't freeze the UI or cause repeated quota queries to overload DB.
 
 #### Auto-Testing Prompt
 
@@ -446,37 +446,37 @@ Return JSON:
 
 **Goal:** macOS menu bar icon + cross-platform tray that shows quota & quick controls.
 
-* [ ] **8.1** Enable Tauri tray feature:
+* [x] **8.1** Enable Tauri tray feature:
 
-  * [ ] Configure `tauri.conf.json` with tray icon settings.
-* [ ] **8.2** Implement tray/menu:
+  * [x] Configure `tauri.conf.json` with tray icon settings.
+* [x] **8.2** Implement tray/menu:
 
-  * [ ] Icon in system tray/menu bar.
-  * [ ] Menu entries:
+  * [x] Icon in system tray/menu bar.
+  * [x] Menu entries:
 
-    * “Open Genie”
-    * “Show Quota”
-    * “Settings” (optional).
-    * “Quit”.
-* [ ] **8.3** Tray tooltip & mini view:
+    * "Open Genie"
+    * "Show Quota"
+    * "Settings" (optional).
+    * "Quit".
+* [x] **8.3** Tray tooltip & mini view:
 
-  * [ ] Show small text: `X/Y requests today`.
+  * [x] Show small text: `X/Y requests today`.
   * [ ] Optional submenu showing:
 
     * Requests/minute.
     * Current model.
-* [ ] **8.4** Hook actions:
+* [x] **8.4** Hook actions:
 
-  * [ ] “Open Genie” should focus main window.
-  * [ ] “Show Quota” should open Quota workspace.
-  * [ ] “Settings” may open config-related UI.
-  * [ ] “Quit” exits app cleanly.
+  * [x] "Open Genie" should focus main window.
+  * [ ] "Show Quota" should open Quota workspace.
+  * [ ] "Settings" may open config-related UI.
+  * [x] "Quit" exits app cleanly.
 
 #### Acceptance Criteria
 
-* [ ] On macOS, launching app shows an icon in the menu bar.
-* [ ] Clicking tray icon opens a menu with at least “Open Genie” and “Quit”.
-* [ ] Selecting “Open Genie” brings main window to front.
+* [x] On macOS, launching app shows an icon in the menu bar.
+* [x] Clicking tray icon opens a menu with at least "Open Genie" and "Quit".
+* [x] Selecting "Open Genie" brings main window to front.
 * [ ] Tray tooltip / menu shows at least daily quota status.
 
 #### Auto-Testing Prompt
@@ -503,26 +503,26 @@ Return JSON:
 
 **Goal:** Build distributable packages for macOS and Linux.
 
-* [ ] **9.1** Configure Tauri builds:
+* [x] **9.1** Configure Tauri builds:
 
-  * [ ] macOS `.app` and optionally `.dmg`.
-  * [ ] Linux bundles (AppImage or deb/rpm depending on target).
-* [ ] **9.2** Ensure app bundle includes:
+  * [x] macOS `.app` and optionally `.dmg`.
+  * [x] Linux bundles (AppImage or deb/rpm depending on target).
+* [x] **9.2** Ensure app bundle includes:
 
-  * [ ] `genie-ui` and required runtime.
-  * [ ] Proper bundle identifier, icon, version.
+  * [x] `genie-ui` and required runtime.
+  * [x] Proper bundle identifier, icon, version.
 * [ ] **9.3** Document installation:
 
-  * [ ] Add section in README: “Desktop App (Tauri)” with install/run steps.
+  * [ ] Add section in README: "Desktop App (Tauri)" with install/run steps.
 * [ ] **9.4** CI integration:
 
   * [ ] Optional: GitHub Actions job to build release artifacts for macOS + Linux.
 
 #### Acceptance Criteria
 
-* [ ] Running Tauri release build produces platform-specific bundles.
-* [ ] On macOS, user can drag `.app` into Applications and run it successfully.
-* [ ] App connects to `genie-core` functionality (chat/docs/etc) when launched from installed bundle.
+* [x] Running Tauri release build produces platform-specific bundles.
+* [x] On macOS, user can drag `.app` into Applications and run it successfully.
+* [x] App connects to `genie-core` functionality (chat/docs/etc) when launched from installed bundle.
 
 #### Auto-Testing Prompt
 

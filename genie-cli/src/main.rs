@@ -147,6 +147,10 @@ pub enum Commands {
     /// Configuration commands
     #[command(subcommand)]
     Config(ConfigCommands),
+
+    /// RAG (Retrieval-Augmented Generation) commands
+    #[command(subcommand)]
+    Rag(RagCommands),
 }
 
 #[derive(Subcommand)]
@@ -214,6 +218,66 @@ pub enum ConfigCommands {
     /// Initialize default configuration
     Init {
         /// Overwrite existing config
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RagCommands {
+    /// Initialize a new RAG collection
+    Init {
+        /// Name for the collection
+        name: String,
+
+        /// Description for the collection
+        #[arg(long, short)]
+        description: Option<String>,
+    },
+
+    /// List all RAG collections
+    Ls,
+
+    /// Ingest documents into a collection
+    Ingest {
+        /// Collection ID or name
+        collection: String,
+
+        /// Path to file or directory to ingest
+        path: PathBuf,
+
+        /// File pattern to match (e.g., "*.txt")
+        #[arg(long)]
+        pattern: Option<String>,
+
+        /// Approximate chunk size in characters
+        #[arg(long, default_value = "1000")]
+        chunk_size: usize,
+    },
+
+    /// Query a collection
+    Query {
+        /// Collection ID or name
+        collection: String,
+
+        /// Question to ask
+        question: String,
+
+        /// Number of top results to retrieve
+        #[arg(long, default_value = "5")]
+        top_k: usize,
+
+        /// Show source documents
+        #[arg(long)]
+        show_sources: bool,
+    },
+
+    /// Remove a collection
+    Rm {
+        /// Collection ID or name
+        collection: String,
+
+        /// Force removal without confirmation
         #[arg(long)]
         force: bool,
     },
@@ -319,6 +383,27 @@ async fn main() -> Result<()> {
         Commands::Config(cmd) => match cmd {
             ConfigCommands::Show => commands::config::show(config),
             ConfigCommands::Init { force } => commands::config::init(force),
+        },
+        Commands::Rag(cmd) => match cmd {
+            RagCommands::Init { name, description } => {
+                commands::rag::init(&name, description.as_deref()).await
+            }
+            RagCommands::Ls => commands::rag::list().await,
+            RagCommands::Ingest {
+                collection,
+                path,
+                pattern,
+                chunk_size,
+            } => commands::rag::ingest(&collection, &path, pattern.as_deref(), Some(chunk_size)).await,
+            RagCommands::Query {
+                collection,
+                question,
+                top_k,
+                show_sources,
+            } => commands::rag::query(&collection, &question, Some(top_k), show_sources).await,
+            RagCommands::Rm { collection, force } => {
+                commands::rag::remove(&collection, force).await
+            }
         },
     }
 }

@@ -35,6 +35,9 @@ tera = { workspace = true }
 # Regex for chapter detection
 regex = "1.11"
 
+# Pattern matching for RAG
+glob = "0.3"
+
 [dev-dependencies]
 tempfile = "3.14"
 
