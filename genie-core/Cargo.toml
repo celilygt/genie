@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Core library for Genie - Gemini CLI wrapper with quota tracking"
+repository.workspace = true
+homepage = "https://github.com/celilygt/genie"
+documentation = "https://docs.rs/genie-core"
+keywords = ["gemini", "ai", "cli", "quota", "google"]
+categories = ["command-line-utilities", "api-bindings"]
 
 [dependencies]
 tokio = { workspace = true }

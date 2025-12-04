@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "CLI for Genie - Local Gemini-as-a-service"
+repository.workspace = true
+homepage = "https://github.com/celilygt/genie"
+documentation = "https://docs.rs/genie-cli"
+readme = "../README.md"
+keywords = ["gemini", "ai", "cli", "openai", "google"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "genie"
