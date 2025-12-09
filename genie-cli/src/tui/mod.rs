@@ -7,11 +7,12 @@
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use genie_core::{server::AppState, Config};
+use futures::StreamExt;
+use genie_core::{server::AppState, Config, QuotaConfig, UsageEvent, UsageStats};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -24,6 +25,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time::interval;
 
 /// TUI view mode
 #[derive(Clone, Copy, PartialEq)]
@@ -32,12 +34,30 @@ enum ViewMode {
     Expanded,
 }
 
+/// Cached data for rendering (avoids blocking in render functions)
+struct CachedData {
+    stats: Option<UsageStats>,
+    events: Vec<UsageEvent>,
+    config: QuotaConfig,
+}
+
+impl Default for CachedData {
+    fn default() -> Self {
+        Self {
+            stats: None,
+            events: Vec::new(),
+            config: QuotaConfig::default(),
+        }
+    }
+}
+
 /// TUI application state
 struct App {
     state: Arc<AppState>,
     config: Config,
     view_mode: ViewMode,
     should_quit: bool,
+    cached: CachedData,
 }
 
 impl App {
@@ -47,6 +67,7 @@ impl App {
             config,
             view_mode: ViewMode::Expanded,
             should_quit: false,
+            cached: CachedData::default(),
         }
     }
 
@@ -55,6 +76,22 @@ impl App {
             ViewMode::Compact => ViewMode::Expanded,
             ViewMode::Expanded => ViewMode::Compact,
         };
+    }
+
+    /// Refresh cached data from the state (async, non-blocking)
+    async fn refresh_data(&mut self) {
+        // Get stats
+        if let Ok(stats) = self.state.quota.get_stats().await {
+            self.cached.stats = Some(stats);
+        }
+
+        // Get recent events
+        if let Ok(events) = self.state.quota.get_recent_events(20).await {
+            self.cached.events = events;
+        }
+
+        // Get config
+        self.cached.config = self.state.config.read().await.quota.clone();
     }
 }
 
@@ -74,9 +111,11 @@ pub async fn run(
     // Create app state
     let mut app = App::new(state, config);
 
+    // Initial data load
+    app.refresh_data().await;
+
     // Main loop
-    let tick_rate = Duration::from_millis(250);
-    let result = run_app(&mut terminal, &mut app, tick_rate).await;
+    let result = run_app(&mut terminal, &mut app).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -93,26 +132,37 @@ pub async fn run(
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
-    tick_rate: Duration,
 ) -> Result<()> {
+    let mut event_stream = EventStream::new();
+    let mut refresh_interval = interval(Duration::from_millis(500));
+
     loop {
         // Draw UI
         terminal.draw(|f| ui(f, app))?;
 
-        // Handle input
-        if event::poll(tick_rate)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            app.should_quit = true;
+        // Handle events with timeout for periodic refresh
+        tokio::select! {
+            // Handle keyboard events
+            maybe_event = event_stream.next() => {
+                if let Some(Ok(event)) = maybe_event {
+                    if let Event::Key(key) = event {
+                        if key.kind == KeyEventKind::Press {
+                            match key.code {
+                                KeyCode::Char('q') | KeyCode::Esc => {
+                                    app.should_quit = true;
+                                }
+                                KeyCode::Char(' ') => {
+                                    app.toggle_view();
+                                }
+                                _ => {}
+                            }
                         }
-                        KeyCode::Char(' ') => {
-                            app.toggle_view();
-                        }
-                        _ => {}
                     }
                 }
+            }
+            // Periodic data refresh
+            _ = refresh_interval.tick() => {
+                app.refresh_data().await;
             }
         }
 
@@ -168,10 +218,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_status(f: &mut Frame, area: Rect, app: &App) {
-    // Get stats synchronously (we'll cache/update these periodically in production)
-    let stats = futures::executor::block_on(async { app.state.quota.get_stats().await.ok() });
-
-    let config = futures::executor::block_on(async { app.state.config.read().await.clone() });
+    let config = &app.cached.config;
 
     let block = Block::default()
         .title(" 📊 Quota Status ")
@@ -192,14 +239,14 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
             ])
             .split(inner);
 
-        if let Some(stats) = stats {
+        if let Some(stats) = &app.cached.stats {
             // Daily quota gauge
             let daily_pct =
-                (stats.requests_today as f64 / config.quota.per_day as f64 * 100.0).min(100.0);
+                (stats.requests_today as f64 / config.per_day as f64 * 100.0).min(100.0);
             let daily_gauge = Gauge::default()
                 .block(Block::default().title(format!(
                     "Daily: {}/{} requests",
-                    stats.requests_today, config.quota.per_day
+                    stats.requests_today, config.per_day
                 )))
                 .gauge_style(Style::default().fg(if daily_pct > 90.0 {
                     Color::Red
@@ -212,13 +259,12 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
             f.render_widget(daily_gauge, status_chunks[0]);
 
             // Minute quota gauge
-            let minute_pct = (stats.requests_last_minute as f64 / config.quota.per_minute as f64
-                * 100.0)
-                .min(100.0);
+            let minute_pct =
+                (stats.requests_last_minute as f64 / config.per_minute as f64 * 100.0).min(100.0);
             let minute_gauge = Gauge::default()
                 .block(Block::default().title(format!(
                     "Per minute: {}/{} requests",
-                    stats.requests_last_minute, config.quota.per_minute
+                    stats.requests_last_minute, config.per_minute
                 )))
                 .gauge_style(Style::default().fg(if minute_pct > 90.0 {
                     Color::Red
@@ -247,13 +293,13 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
         let inner = block.inner(area);
         f.render_widget(block, area);
 
-        if let Some(stats) = stats {
+        if let Some(stats) = &app.cached.stats {
             let status_text = Paragraph::new(format!(
                 "Day: {}/{} │ Min: {}/{} │ Tokens: {} in / {} out",
                 stats.requests_today,
-                config.quota.per_day,
+                config.per_day,
                 stats.requests_last_minute,
-                config.quota.per_minute,
+                config.per_minute,
                 stats.input_tokens_today,
                 stats.output_tokens_today
             ))
@@ -264,11 +310,12 @@ fn render_status(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_logs(f: &mut Frame, area: Rect, app: &App) {
-    let events =
-        futures::executor::block_on(async { app.state.quota.get_recent_events(20).await.ok() });
+    let events = &app.cached.events;
 
-    let items: Vec<ListItem> = match events {
-        Some(events) => events
+    let items: Vec<ListItem> = if events.is_empty() {
+        vec![ListItem::new("No requests yet...")]
+    } else {
+        events
             .iter()
             .map(|e| {
                 let time = chrono::DateTime::parse_from_rfc3339(&e.timestamp)
@@ -278,7 +325,8 @@ fn render_logs(f: &mut Frame, area: Rect, app: &App) {
                 let status_color = if e.success { Color::Green } else { Color::Red };
                 let status_symbol = if e.success { "✓" } else { "✗" };
 
-                ListItem::new(Line::from(vec![
+                // Build the main line
+                let mut spans = vec![
                     Span::styled(format!("{} ", time), Style::default().fg(Color::DarkGray)),
                     Span::styled(
                         format!("{} ", status_symbol),
@@ -293,10 +341,25 @@ fn render_logs(f: &mut Frame, area: Rect, app: &App) {
                         "{}→{} tokens",
                         e.approx_input_tokens, e.approx_output_tokens
                     )),
-                ]))
+                ];
+
+                // Add error info if present
+                if !e.success {
+                    if let Some(ref error_code) = e.error_code {
+                        // Truncate error to fit on screen but show meaningful info
+                        let error_display = format_error_message(error_code);
+                        spans.push(Span::styled(
+                            format!(" │ {}", error_display),
+                            Style::default()
+                                .fg(Color::Red)
+                                .add_modifier(Modifier::ITALIC),
+                        ));
+                    }
+                }
+
+                ListItem::new(Line::from(spans))
             })
-            .collect(),
-        None => vec![ListItem::new("Loading...")],
+            .collect()
     };
 
     let logs = List::new(items)
@@ -329,10 +392,46 @@ fn render_help(f: &mut Frame, area: Rect, _app: &App) {
     f.render_widget(help, area);
 }
 
+/// Truncate a string to max_len characters
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
         format!("{}…", &s[..max_len - 1])
     }
+}
+
+/// Format error message for display - extracts key info from error strings
+fn format_error_message(error: &str) -> String {
+    // Try to extract HTTP status codes and meaningful error info
+    let error_lower = error.to_lowercase();
+
+    // Check for common HTTP error patterns
+    if error_lower.contains("500") {
+        if error_lower.contains("internal server error") {
+            return "500 Internal Server Error - Gemini API failed".to_string();
+        }
+        return "500 Server Error".to_string();
+    }
+    if error_lower.contains("429") || error_lower.contains("rate limit") {
+        return "429 Rate Limited".to_string();
+    }
+    if error_lower.contains("401") || error_lower.contains("unauthorized") {
+        return "401 Unauthorized - Check API key".to_string();
+    }
+    if error_lower.contains("403") || error_lower.contains("forbidden") {
+        return "403 Forbidden".to_string();
+    }
+    if error_lower.contains("404") {
+        return "404 Not Found".to_string();
+    }
+    if error_lower.contains("timeout") {
+        return "Request Timeout".to_string();
+    }
+    if error_lower.contains("connection") {
+        return "Connection Error".to_string();
+    }
+
+    // For other errors, truncate to reasonable length
+    truncate(error, 40)
 }

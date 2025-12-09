@@ -24,8 +24,8 @@ pub mod repo;
 pub mod server;
 pub mod templates;
 
-pub use config::Config;
+pub use config::{Config, QuotaConfig};
 pub use gemini::{GeminiClient, GeminiError, GeminiRequest, GeminiResponse};
 pub use model::*;
-pub use quota::{QuotaError, QuotaManager, UsageEvent};
+pub use quota::{QuotaError, QuotaManager, UsageEvent, UsageStats};
 pub use rag::{RagError, RagManager, RagQueryResponse, IngestStats};

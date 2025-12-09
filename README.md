@@ -33,7 +33,7 @@ gemini
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/genie.git
+git clone https://github.com/celilygt/genie.git
 cd genie
 
 # Build and install
