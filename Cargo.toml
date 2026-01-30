@@ -54,3 +54,6 @@ lopdf = "0.34"
 walkdir = "2.5"
 ignore = "0.4"
 
+# OpenAPI documentation
+utoipa = { version = "5.3", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }

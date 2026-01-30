@@ -42,3 +42,8 @@ reqwest = { version = "0.12", features = ["json"] }
 # For async streams in TUI
 futures = "0.3"
 
+# For path utilities
+dirs = { workspace = true }
+
+# For opening URLs in browser
+open = "5.3"

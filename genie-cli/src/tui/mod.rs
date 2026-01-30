@@ -58,6 +58,7 @@ struct App {
     view_mode: ViewMode,
     should_quit: bool,
     cached: CachedData,
+    dashboard_opened: bool,
 }
 
 impl App {
@@ -65,9 +66,10 @@ impl App {
         Self {
             state,
             config,
-            view_mode: ViewMode::Expanded,
+            view_mode: ViewMode::Compact, // Start in compact mode (Tilt-style)
             should_quit: false,
             cached: CachedData::default(),
+            dashboard_opened: false,
         }
     }
 
@@ -76,6 +78,17 @@ impl App {
             ViewMode::Compact => ViewMode::Expanded,
             ViewMode::Expanded => ViewMode::Compact,
         };
+    }
+
+    /// Open the web dashboard in the default browser
+    fn open_dashboard(&mut self) {
+        let url = format!("{}/dashboard", self.config.server_url());
+        if let Err(e) = open::that(&url) {
+            // Silently fail - the URL is still shown in the TUI
+            tracing::warn!("Failed to open browser: {}", e);
+        } else {
+            self.dashboard_opened = true;
+        }
     }
 
     /// Refresh cached data from the state (async, non-blocking)
@@ -152,6 +165,11 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     app.should_quit = true;
                                 }
                                 KeyCode::Char(' ') => {
+                                    // Open web dashboard in browser (Tilt-style)
+                                    app.open_dashboard();
+                                }
+                                KeyCode::Char('v') => {
+                                    // Toggle between compact and expanded view
                                     app.toggle_view();
                                 }
                                 _ => {}
@@ -374,12 +392,23 @@ fn render_logs(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(logs, area);
 }
 
-fn render_help(f: &mut Frame, area: Rect, _app: &App) {
+fn render_help(f: &mut Frame, area: Rect, app: &App) {
+    let dashboard_text = if app.dashboard_opened {
+        " Dashboard ✓  "
+    } else {
+        " Open Dashboard  "
+    };
+    
     let help = Paragraph::new(Line::from(vec![
         Span::styled(" q ", Style::default().fg(Color::Black).bg(Color::White)),
         Span::raw(" Quit  "),
         Span::styled(
             " Space ",
+            Style::default().fg(Color::Black).bg(Color::Cyan),
+        ),
+        Span::raw(dashboard_text),
+        Span::styled(
+            " v ",
             Style::default().fg(Color::Black).bg(Color::White),
         ),
         Span::raw(" Toggle View  "),

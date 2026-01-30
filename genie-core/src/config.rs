@@ -44,7 +44,7 @@ fn default_binary() -> String {
 }
 
 fn default_model() -> String {
-    "gemini-2.5-pro".to_string()
+    "gemini-3-pro".to_string()
 }
 
 impl Default for GeminiConfig {

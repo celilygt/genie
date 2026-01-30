@@ -4,9 +4,10 @@
 //! requests, responses, and internal data structures.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Types of requests that Genie can handle
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RequestKind {
     Ask,
@@ -56,7 +57,7 @@ impl From<&str> for RequestKind {
 }
 
 /// OpenAI-compatible chat message
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -86,7 +87,7 @@ impl ChatMessage {
 }
 
 /// OpenAI-compatible chat completion request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChatCompletionRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
@@ -112,7 +113,7 @@ pub struct ChatCompletionRequest {
 }
 
 /// OpenAI-compatible chat completion response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChatCompletionResponse {
     pub id: String,
     pub object: String,
@@ -124,7 +125,7 @@ pub struct ChatCompletionResponse {
 }
 
 /// Choice in a chat completion response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Choice {
     pub index: u32,
     pub message: ChatMessage,
@@ -132,7 +133,7 @@ pub struct Choice {
 }
 
 /// Token usage information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
@@ -142,7 +143,7 @@ pub struct Usage {
 // === Streaming Types ===
 
 /// Streaming chunk for chat completions (OpenAI-compatible)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChatCompletionChunk {
     pub id: String,
     pub object: String,
@@ -152,7 +153,7 @@ pub struct ChatCompletionChunk {
 }
 
 /// Choice in a streaming chunk
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChunkChoice {
     pub index: u32,
     pub delta: ChunkDelta,
@@ -161,7 +162,7 @@ pub struct ChunkChoice {
 }
 
 /// Delta content in a streaming chunk
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChunkDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
@@ -231,7 +232,7 @@ impl ChatCompletionChunk {
 }
 
 /// Quota status response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct QuotaStatus {
     pub requests_today: u32,
     pub requests_per_day_limit: u32,
@@ -244,12 +245,12 @@ pub struct QuotaStatus {
 }
 
 /// API error response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ApiError {
     pub error: ApiErrorDetail,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ApiErrorDetail {
     pub message: String,
     pub r#type: String,
@@ -287,11 +288,60 @@ impl ApiError {
 }
 
 /// Health check response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
     pub gemini_available: bool,
+}
+
+// === Text Completion Types (OpenAI /v1/completions compatible) ===
+
+/// OpenAI-compatible text completion request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CompletionRequest {
+    pub model: String,
+    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(default)]
+    pub stream: bool,
+    /// System prompt to prepend (Genie extension)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    // Additional OpenAI-compatible fields (may be ignored)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suffix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+}
+
+/// OpenAI-compatible text completion response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CompletionResponse {
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub model: String,
+    pub choices: Vec<CompletionChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+}
+
+/// Choice in a text completion response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CompletionChoice {
+    pub index: u32,
+    pub text: String,
+    pub finish_reason: String,
 }
 
 #[cfg(test)]

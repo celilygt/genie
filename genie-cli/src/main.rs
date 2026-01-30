@@ -151,6 +151,10 @@ pub enum Commands {
     /// RAG (Retrieval-Augmented Generation) commands
     #[command(subcommand)]
     Rag(RagCommands),
+
+    /// Manage Genie as a background service (macOS LaunchAgent)
+    #[command(subcommand)]
+    Service(ServiceCommands),
 }
 
 #[derive(Subcommand)]
@@ -283,6 +287,46 @@ pub enum RagCommands {
     },
 }
 
+#[derive(Subcommand)]
+pub enum ServiceCommands {
+    /// Install Genie as a macOS LaunchAgent (runs on login)
+    Install {
+        /// Server port to use
+        #[arg(long, default_value = "11435")]
+        port: u16,
+
+        /// Force overwrite existing installation
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Uninstall the LaunchAgent
+    Uninstall,
+
+    /// Start the Genie background service
+    Start,
+
+    /// Stop the Genie background service
+    Stop,
+
+    /// Restart the Genie background service
+    Restart,
+
+    /// Check service status
+    Status,
+
+    /// View service logs
+    Logs {
+        /// Number of lines to show
+        #[arg(long, short, default_value = "50")]
+        lines: u32,
+
+        /// Follow log output (like tail -f)
+        #[arg(long, short)]
+        follow: bool,
+    },
+}
+
 fn init_logging(level: &str) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
@@ -404,6 +448,15 @@ async fn main() -> Result<()> {
             RagCommands::Rm { collection, force } => {
                 commands::rag::remove(&collection, force).await
             }
+        },
+        Commands::Service(cmd) => match cmd {
+            ServiceCommands::Install { port, force } => commands::service::install(port, force),
+            ServiceCommands::Uninstall => commands::service::uninstall(),
+            ServiceCommands::Start => commands::service::start(),
+            ServiceCommands::Stop => commands::service::stop(),
+            ServiceCommands::Restart => commands::service::restart(),
+            ServiceCommands::Status => commands::service::status(config).await,
+            ServiceCommands::Logs { lines, follow } => commands::service::logs(lines, follow),
         },
     }
 }
