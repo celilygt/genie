@@ -181,10 +181,10 @@ async fn root(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         ],
         
         // Supported models
-        "default_model": "gemini-3-pro",
+        "default_model": "gemini-3-pro-preview",
         "models": [
-            "gemini-3-pro",
-            "gemini-3-flash",
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
             "gemini-2.5-pro",
             "gemini-2.5-flash"
         ],
@@ -312,7 +312,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="gemini-3-pro",  # or gemini-3-flash, gemini-2.5-pro, gemini-2.5-flash
+    model="gemini-3-pro-preview",  # or gemini-3-flash-preview, gemini-2.5-pro, gemini-2.5-flash
     messages=[
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "Hello!"}
@@ -327,7 +327,7 @@ print(response.choices[0].message.content)
 curl -X POST http://127.0.0.1:11435/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3-pro",
+    "model": "gemini-3-pro-preview",
     "messages": [
       {"role": "user", "content": "Hello!"}
     ]
@@ -340,8 +340,8 @@ curl -X POST http://127.0.0.1:11435/v1/chat/completions \
 
 | Model | Description |
 |-------|-------------|
-| `gemini-3-pro` | Latest Gemini 3 Pro - best for complex tasks |
-| `gemini-3-flash` | Latest Gemini 3 Flash - fast and efficient |
+| `gemini-3-pro-preview` | Latest Gemini 3 Pro - best for complex tasks |
+| `gemini-3-flash-preview` | Latest Gemini 3 Flash - fast and efficient |
 | `gemini-2.5-pro` | Gemini 2.5 Pro - powerful reasoning |
 | `gemini-2.5-flash` | Gemini 2.5 Flash - balanced performance |
 
@@ -357,7 +357,7 @@ Chat completion (supports streaming with `stream: true`).
 **Request:**
 ```json
 {
-  "model": "gemini-3-pro",
+  "model": "gemini-3-pro-preview",
   "messages": [
     {"role": "system", "content": "You are helpful."},
     {"role": "user", "content": "Explain quantum computing"}
@@ -374,7 +374,7 @@ Chat completion (supports streaming with `stream: true`).
   "id": "chatcmpl-xxx",
   "object": "chat.completion",
   "created": 1234567890,
-  "model": "gemini-3-pro",
+  "model": "gemini-3-pro-preview",
   "choices": [{
     "index": 0,
     "message": {
@@ -397,7 +397,7 @@ Simple text completion.
 **Request:**
 ```json
 {
-  "model": "gemini-3-flash",
+  "model": "gemini-3-flash-preview",
   "prompt": "The meaning of life is",
   "max_tokens": 100,
   "temperature": 0.5
@@ -514,7 +514,7 @@ from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:11435/v1",
     api_key="not-needed",
-    model="gemini-3-pro"
+    model="gemini-3-pro-preview"
 )
 
 response = llm.invoke("Explain machine learning")
@@ -530,7 +530,7 @@ Genie reads config from `~/.genie/config.toml`:
 ```toml
 [gemini]
 binary = "gemini"
-default_model = "gemini-3-pro"
+default_model = "gemini-3-pro-preview"
 
 [server]
 host = "127.0.0.1"
@@ -898,11 +898,11 @@ const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
                 <div class="card-title">🤖 Available Models</div>
                 <div class="models-grid">
                     <div class="model-item featured">
-                        <span class="model-name">gemini-3-pro</span>
+                        <span class="model-name">gemini-3-pro-preview</span>
                         <span class="model-badge new">NEW</span>
                     </div>
                     <div class="model-item featured">
-                        <span class="model-name">gemini-3-flash</span>
+                        <span class="model-name">gemini-3-flash-preview</span>
                         <span class="model-badge new">NEW</span>
                     </div>
                     <div class="model-item">
@@ -1131,15 +1131,15 @@ async fn list_models(State(state): State<Arc<AppState>>) -> impl IntoResponse {
                 "owned_by": "google",
                 "permission": []
             },
-            // Gemini 3 models (latest)
+            // Gemini 3 models (preview)
             {
-                "id": "gemini-3-pro",
+                "id": "gemini-3-pro-preview",
                 "object": "model",
                 "owned_by": "google",
                 "permission": []
             },
             {
-                "id": "gemini-3-flash",
+                "id": "gemini-3-flash-preview",
                 "object": "model",
                 "owned_by": "google",
                 "permission": []

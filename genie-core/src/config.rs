@@ -44,7 +44,7 @@ fn default_binary() -> String {
 }
 
 fn default_model() -> String {
-    "gemini-3-pro".to_string()
+    "gemini-3-pro-preview".to_string()
 }
 
 impl Default for GeminiConfig {
@@ -292,7 +292,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.gemini.binary, "gemini");
-        assert_eq!(config.gemini.default_model, "gemini-2.5-pro");
+        assert_eq!(config.gemini.default_model, "gemini-3-pro-preview");
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 11435);
         assert_eq!(config.quota.per_minute, 60);
@@ -318,6 +318,6 @@ port = 9999
         assert_eq!(config.server.port, 9999);
         // Defaults still applied
         assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.gemini.default_model, "gemini-2.5-pro");
+        assert_eq!(config.gemini.default_model, "gemini-3-pro-preview");
     }
 }
