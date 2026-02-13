@@ -19,6 +19,7 @@ pub enum RequestKind {
     SummarizeBook,
     RepoSummary,
     Template,
+    Embeddings,
     Custom(String),
 }
 
@@ -34,6 +35,7 @@ impl std::fmt::Display for RequestKind {
             RequestKind::SummarizeBook => write!(f, "summarize_book"),
             RequestKind::RepoSummary => write!(f, "repo_summary"),
             RequestKind::Template => write!(f, "template"),
+            RequestKind::Embeddings => write!(f, "embeddings"),
             RequestKind::Custom(s) => write!(f, "custom:{}", s),
         }
     }
@@ -51,6 +53,7 @@ impl From<&str> for RequestKind {
             "summarize_book" => RequestKind::SummarizeBook,
             "repo_summary" => RequestKind::RepoSummary,
             "template" => RequestKind::Template,
+            "embeddings" => RequestKind::Embeddings,
             other => RequestKind::Custom(other.to_string()),
         }
     }
@@ -344,6 +347,124 @@ pub struct CompletionChoice {
     pub finish_reason: String,
 }
 
+// === Embeddings Types (OpenAI /v1/embeddings compatible) ===
+
+/// Input for embedding request - can be a single string or array of strings
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum EmbeddingInput {
+    /// Single text to embed
+    Single(String),
+    /// Multiple texts to embed
+    Multiple(Vec<String>),
+}
+
+impl EmbeddingInput {
+    /// Convert to a vector of strings
+    pub fn into_vec(self) -> Vec<String> {
+        match self {
+            EmbeddingInput::Single(s) => vec![s],
+            EmbeddingInput::Multiple(v) => v,
+        }
+    }
+
+    /// Get the number of inputs
+    pub fn len(&self) -> usize {
+        match self {
+            EmbeddingInput::Single(_) => 1,
+            EmbeddingInput::Multiple(v) => v.len(),
+        }
+    }
+
+    /// Check if empty
+    pub fn is_empty(&self) -> bool {
+        match self {
+            EmbeddingInput::Single(s) => s.is_empty(),
+            EmbeddingInput::Multiple(v) => v.is_empty(),
+        }
+    }
+}
+
+/// OpenAI-compatible embedding request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmbeddingRequest {
+    /// Input text(s) to embed
+    pub input: EmbeddingInput,
+    /// Model to use (mapped to local fastembed model)
+    pub model: String,
+    /// Encoding format (only "float" is supported)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding_format: Option<String>,
+    /// Dimensions (ignored - determined by model)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<u32>,
+    /// User identifier (optional, for logging)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+}
+
+/// OpenAI-compatible embedding response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmbeddingResponse {
+    /// Always "list"
+    pub object: String,
+    /// Array of embedding objects
+    pub data: Vec<EmbeddingData>,
+    /// Model used to generate embeddings
+    pub model: String,
+    /// Token usage information
+    pub usage: EmbeddingUsage,
+}
+
+/// Single embedding in the response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmbeddingData {
+    /// Always "embedding"
+    pub object: String,
+    /// The embedding vector (array of floats)
+    pub embedding: Vec<f32>,
+    /// Index of this embedding in the input array
+    pub index: u32,
+}
+
+/// Token usage for embedding request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EmbeddingUsage {
+    /// Number of tokens in the input
+    pub prompt_tokens: u32,
+    /// Total tokens (same as prompt_tokens for embeddings)
+    pub total_tokens: u32,
+}
+
+impl EmbeddingResponse {
+    /// Create a new embedding response
+    pub fn new(
+        embeddings: Vec<Vec<f32>>,
+        model: String,
+        prompt_tokens: u32,
+    ) -> Self {
+        let data = embeddings
+            .into_iter()
+            .enumerate()
+            .map(|(i, embedding)| EmbeddingData {
+                object: "embedding".to_string(),
+                embedding,
+                index: i as u32,
+            })
+            .collect();
+
+        Self {
+            object: "list".to_string(),
+            data,
+            model,
+            usage: EmbeddingUsage {
+                prompt_tokens,
+                total_tokens: prompt_tokens,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,5 +497,49 @@ mod tests {
         let json = serde_json::to_string(&error).unwrap();
         assert!(json.contains("quota_exceeded"));
         assert!(json.contains("rate_limit_exceeded"));
+    }
+
+    #[test]
+    fn test_embedding_input_single() {
+        let input: EmbeddingInput =
+            serde_json::from_str(r#""Hello world""#).unwrap();
+        assert!(matches!(input, EmbeddingInput::Single(_)));
+        assert_eq!(input.len(), 1);
+        let vec = input.into_vec();
+        assert_eq!(vec, vec!["Hello world"]);
+    }
+
+    #[test]
+    fn test_embedding_input_multiple() {
+        let input: EmbeddingInput =
+            serde_json::from_str(r#"["Hello", "World"]"#).unwrap();
+        assert!(matches!(input, EmbeddingInput::Multiple(_)));
+        assert_eq!(input.len(), 2);
+        let vec = input.into_vec();
+        assert_eq!(vec, vec!["Hello", "World"]);
+    }
+
+    #[test]
+    fn test_embedding_response() {
+        let embeddings = vec![vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]];
+        let response = EmbeddingResponse::new(embeddings, "test-model".to_string(), 10);
+
+        assert_eq!(response.object, "list");
+        assert_eq!(response.data.len(), 2);
+        assert_eq!(response.data[0].index, 0);
+        assert_eq!(response.data[1].index, 1);
+        assert_eq!(response.model, "test-model");
+        assert_eq!(response.usage.prompt_tokens, 10);
+    }
+
+    #[test]
+    fn test_embedding_request_deserialization() {
+        let json = r#"{
+            "input": "Hello world",
+            "model": "text-embedding-ada-002"
+        }"#;
+        let request: EmbeddingRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.model, "text-embedding-ada-002");
+        assert!(matches!(request.input, EmbeddingInput::Single(_)));
     }
 }

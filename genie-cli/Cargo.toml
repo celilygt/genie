@@ -43,7 +43,5 @@ reqwest = { version = "0.12", features = ["json"] }
 futures = "0.3"
 
 # For path utilities
-dirs = { workspace = true }
-
-# For opening URLs in browser
+dirs = { workspace = true }# For opening URLs in browser
 open = "5.3"

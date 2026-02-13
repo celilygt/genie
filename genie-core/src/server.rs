@@ -5,11 +5,12 @@
 
 use crate::config::Config;
 use crate::docs::{self, BookSummary, DocumentSummary, SummarizeOptions, SummaryStyle};
+use crate::embeddings::{EmbeddingsError, LocalEmbeddings};
 use crate::gemini::{GeminiClient, GeminiError, GeminiRequest};
 use crate::model::{
     ApiError, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, ChatMessage,
-    Choice, CompletionChoice, CompletionRequest, CompletionResponse, HealthResponse, QuotaStatus,
-    RequestKind, Usage,
+    Choice, CompletionChoice, CompletionRequest, CompletionResponse, EmbeddingRequest,
+    EmbeddingResponse, HealthResponse, QuotaStatus, RequestKind, Usage,
 };
 use crate::quota::{QuotaError, QuotaManager, UsageEvent};
 use crate::rag::{IngestOptions, QueryOptions, RagCollection, RagManager, RagQueryResponse};
@@ -26,6 +27,7 @@ use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -56,6 +58,7 @@ use uuid::Uuid;
         chat_completions,
         text_completions,
         json_completion,
+        create_embeddings,
         summarize_docs,
         summarize_repo,
         rag_list_collections,
@@ -71,6 +74,11 @@ use uuid::Uuid;
         crate::model::CompletionRequest,
         crate::model::CompletionResponse,
         crate::model::CompletionChoice,
+        crate::model::EmbeddingRequest,
+        crate::model::EmbeddingResponse,
+        crate::model::EmbeddingData,
+        crate::model::EmbeddingUsage,
+        crate::model::EmbeddingInput,
         crate::model::QuotaStatus,
         crate::model::HealthResponse,
         crate::model::ApiError,
@@ -97,6 +105,8 @@ pub struct AppState {
     pub gemini: GeminiClient,
     pub quota: QuotaManager,
     pub config: Arc<RwLock<Config>>,
+    /// Cache of local embeddings models - lazily initialized per model
+    embeddings_cache: RwLock<HashMap<String, Arc<LocalEmbeddings>>>,
 }
 
 impl AppState {
@@ -105,7 +115,52 @@ impl AppState {
             gemini,
             quota,
             config: Arc::new(RwLock::new(config)),
+            embeddings_cache: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Get or initialize local embeddings for a specific model
+    /// Models are cached after first initialization
+    pub async fn get_or_init_embeddings(
+        &self,
+        model_name: &str,
+    ) -> Result<Arc<LocalEmbeddings>, EmbeddingsError> {
+        // Normalize model name for cache key
+        let cache_key = model_name.to_lowercase();
+
+        // Check cache first (read lock)
+        {
+            let cache = self.embeddings_cache.read().await;
+            if let Some(embeddings) = cache.get(&cache_key) {
+                return Ok(Arc::clone(embeddings));
+            }
+        }
+
+        // Not in cache, need to initialize (write lock)
+        let mut cache = self.embeddings_cache.write().await;
+
+        // Double-check after acquiring write lock (another request might have initialized)
+        if let Some(embeddings) = cache.get(&cache_key) {
+            return Ok(Arc::clone(embeddings));
+        }
+
+        // Initialize the model
+        info!(
+            "Lazy-initializing local embeddings model: {} ...",
+            model_name
+        );
+        let embeddings = LocalEmbeddings::from_openai_model(model_name)?;
+        let embeddings = Arc::new(embeddings);
+        cache.insert(cache_key, Arc::clone(&embeddings));
+
+        Ok(embeddings)
+    }
+
+    /// Get a cached embeddings model if available (for RAG operations)
+    pub async fn get_cached_embeddings(&self) -> Option<Arc<LocalEmbeddings>> {
+        let cache = self.embeddings_cache.read().await;
+        // Return any cached model (prefer the first one found)
+        cache.values().next().cloned()
     }
 }
 
@@ -122,6 +177,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // OpenAI-compatible endpoints
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(text_completions))
+        .route("/v1/embeddings", post(create_embeddings))
         .route("/v1/models", get(list_models))
         // Genie-specific endpoints
         .route("/v1/quota", get(get_quota))
@@ -140,6 +196,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/", get(root))
         // Web dashboard (Tilt-style)
         .route("/dashboard", get(dashboard))
+        // Swagger UI for API testing
+        .route("/swagger", get(swagger_ui))
         // Markdown documentation
         .route("/docs/markdown", get(docs_markdown))
         .layer(cors)
@@ -156,7 +214,22 @@ async fn openapi_json() -> impl IntoResponse {
 async fn root(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let config = state.config.read().await;
     let base_url = format!("http://{}:{}", config.server.host, config.server.port);
+    let embeddings_enabled = config.embeddings.enabled;
     drop(config);
+
+    // Build capabilities list dynamically
+    let mut capabilities = vec![
+        "chat",
+        "completions",
+        "json",
+        "docs_summarization",
+        "repo_summarization",
+        "rag",
+        "prompt_templates",
+    ];
+    if embeddings_enabled {
+        capabilities.insert(3, "embeddings"); // Insert after "json"
+    }
 
     Json(serde_json::json!({
         "name": "Genie",
@@ -169,16 +242,7 @@ async fn root(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         "api_version": "v1",
         
         // Available capabilities
-        "capabilities": [
-            "chat",
-            "completions", 
-            "json",
-            "embeddings_future",
-            "docs_summarization",
-            "repo_summarization",
-            "rag",
-            "prompt_templates"
-        ],
+        "capabilities": capabilities,
         
         // Supported models
         "default_model": "gemini-3-pro-preview",
@@ -192,6 +256,8 @@ async fn root(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         // Documentation
         "documentation": {
             "openapi": "/openapi.json",
+            "swagger_ui": "/swagger",
+            "dashboard": "/dashboard",
             "readme": "https://github.com/celilygt/genie"
         },
         
@@ -207,6 +273,11 @@ async fn root(State(state): State<Arc<AppState>>) -> impl IntoResponse {
                     "path": "/v1/completions", 
                     "method": "POST",
                     "description": "OpenAI-compatible text completions"
+                },
+                "embeddings": {
+                    "path": "/v1/embeddings",
+                    "method": "POST",
+                    "description": "Generate text embeddings (local, free)"
                 },
                 "models": {
                     "path": "/v1/models",
@@ -311,6 +382,7 @@ client = OpenAI(
     api_key="not-needed"  # Genie uses Gemini CLI auth
 )
 
+# Chat completions
 response = client.chat.completions.create(
     model="gemini-3-pro-preview",  # or gemini-3-flash-preview, gemini-2.5-pro, gemini-2.5-flash
     messages=[
@@ -318,8 +390,14 @@ response = client.chat.completions.create(
         {"role": "user", "content": "Hello!"}
     ]
 )
-
 print(response.choices[0].message.content)
+
+# Embeddings (local, free!)
+embedding = client.embeddings.create(
+    input="Hello world",
+    model="text-embedding-ada-002"
+)
+print(f"Embedding dimensions: {len(embedding.data[0].embedding)}")  # 384
 ```
 
 ### Using with cURL
@@ -406,6 +484,52 @@ Simple text completion.
 
 #### GET /v1/models
 List available models.
+
+#### POST /v1/embeddings
+Generate text embeddings locally (100% free, no API costs).
+
+**Request:**
+```json
+{
+  "input": "Hello world",
+  "model": "text-embedding-ada-002"
+}
+```
+
+Or with multiple inputs:
+```json
+{
+  "input": ["Hello world", "How are you?"],
+  "model": "text-embedding-ada-002"
+}
+```
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [0.123, -0.456, 0.789, ...],
+      "index": 0
+    }
+  ],
+  "model": "all-MiniLM-L6-v2",
+  "usage": {
+    "prompt_tokens": 2,
+    "total_tokens": 2
+  }
+}
+```
+
+| Model Requested | Local Model Used | Dimensions |
+|-----------------|------------------|------------|
+| `text-embedding-ada-002` | all-MiniLM-L6-v2 | 384 |
+| `text-embedding-3-small` | bge-small-en-v1.5 | 384 |
+| `text-embedding-3-large` | bge-base-en-v1.5 | 768 |
+
+**Note:** Embeddings run 100% locally using ONNX models - no API calls, no costs!
 
 ---
 
@@ -848,6 +972,9 @@ const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
             <span>Genie <span class="version" id="version">v0.1.0</span></span>
         </div>
         <div style="display: flex; align-items: center; gap: 12px;">
+            <a href="/swagger" class="download-btn" style="background: linear-gradient(135deg, #85ea2d 0%, #173647 100%); border-color: #85ea2d;">
+                🔧 Swagger UI
+            </a>
             <a href="/docs/markdown" download="genie-api-docs.md" class="download-btn">
                 📄 Download Docs
             </a>
@@ -912,6 +1039,16 @@ const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
                         <span class="model-name">gemini-2.5-flash</span>
                     </div>
                 </div>
+                <div class="card-title" style="margin-top: 20px;">🧠 Embeddings (Local)</div>
+                <div class="models-grid">
+                    <div class="model-item featured">
+                        <span class="model-name">all-MiniLM-L6-v2</span>
+                        <span class="model-badge new">FREE</span>
+                    </div>
+                    <div class="model-item">
+                        <span class="model-name">384 dimensions</span>
+                    </div>
+                </div>
                 <div class="card-title" style="margin-top: 20px;">🔗 API Endpoints</div>
                 <div class="endpoint-grid">
                     <div class="endpoint">
@@ -921,6 +1058,10 @@ const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
                     <div class="endpoint">
                         <span class="endpoint-method post">POST</span>
                         <span class="endpoint-path">/v1/completions</span>
+                    </div>
+                    <div class="endpoint">
+                        <span class="endpoint-method post">POST</span>
+                        <span class="endpoint-path">/v1/embeddings</span>
                     </div>
                     <div class="endpoint">
                         <span class="endpoint-method get">GET</span>
@@ -1065,6 +1206,107 @@ const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>
 "#;
+
+/// HTML for Swagger UI - Interactive API documentation
+const SWAGGER_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genie API - Swagger UI</title>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+    <style>
+        body { margin: 0; background: #1a1a2e; }
+        .swagger-ui { background: #1a1a2e; }
+        .swagger-ui .topbar { display: none; }
+        .swagger-ui .info .title { color: #e6edf3; }
+        .swagger-ui .info .description, .swagger-ui .info li, .swagger-ui .info p { color: #8b949e; }
+        .swagger-ui .scheme-container { background: #161b22; box-shadow: none; }
+        .swagger-ui .opblock-tag { color: #e6edf3; border-bottom-color: #30363d; }
+        .swagger-ui .opblock { background: #21262d; border-color: #30363d; }
+        .swagger-ui .opblock .opblock-summary { border-color: #30363d; }
+        .swagger-ui .opblock .opblock-summary-description { color: #8b949e; }
+        .swagger-ui .opblock.opblock-post { background: rgba(73, 204, 144, 0.1); border-color: #3fb950; }
+        .swagger-ui .opblock.opblock-post .opblock-summary { border-color: #3fb950; }
+        .swagger-ui .opblock.opblock-get { background: rgba(88, 166, 255, 0.1); border-color: #58a6ff; }
+        .swagger-ui .opblock.opblock-get .opblock-summary { border-color: #58a6ff; }
+        .swagger-ui .btn { background: #21262d; color: #e6edf3; border-color: #30363d; }
+        .swagger-ui .btn:hover { background: #30363d; }
+        .swagger-ui .btn.execute { background: #238636; border-color: #238636; }
+        .swagger-ui .btn.execute:hover { background: #2ea043; }
+        .swagger-ui select { background: #21262d; color: #e6edf3; border-color: #30363d; }
+        .swagger-ui input[type=text], .swagger-ui textarea { background: #0d1117; color: #e6edf3; border-color: #30363d; }
+        .swagger-ui .model-box { background: #161b22; }
+        .swagger-ui .model { color: #8b949e; }
+        .swagger-ui .prop-type { color: #58a6ff; }
+        .swagger-ui .response-col_status { color: #e6edf3; }
+        .swagger-ui table thead tr th { color: #8b949e; border-color: #30363d; }
+        .swagger-ui table tbody tr td { color: #e6edf3; border-color: #30363d; }
+        .swagger-ui .response-col_description { color: #8b949e; }
+        .swagger-ui .responses-inner { background: #161b22; }
+        .swagger-ui .opblock-body pre { background: #0d1117; color: #e6edf3; }
+        .swagger-ui .highlight-code { background: #0d1117; }
+        .swagger-ui .microlight { background: #0d1117 !important; color: #e6edf3 !important; }
+        .header-links {
+            display: flex;
+            gap: 16px;
+            padding: 16px 24px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+        }
+        .header-links a {
+            color: #58a6ff;
+            text-decoration: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 0.875rem;
+        }
+        .header-links a:hover { text-decoration: underline; }
+        .header-links .logo {
+            color: #e6edf3;
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-right: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-links">
+        <span class="logo">🧞 Genie API</span>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/openapi.json">OpenAPI JSON</a>
+        <a href="/docs/markdown">Download Docs</a>
+    </div>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+        window.onload = function() {
+            SwaggerUIBundle({
+                url: "/openapi.json",
+                dom_id: '#swagger-ui',
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIBundle.SwaggerUIStandalonePreset
+                ],
+                layout: "BaseLayout",
+                deepLinking: true,
+                defaultModelsExpandDepth: 1,
+                defaultModelExpandDepth: 1,
+                docExpansion: "list",
+                filter: true,
+                showExtensions: true,
+                showCommonExtensions: true,
+                tryItOutEnabled: true
+            });
+        };
+    </script>
+</body>
+</html>
+"#;
+
+/// Swagger UI endpoint - Interactive API documentation
+async fn swagger_ui() -> Html<&'static str> {
+    Html(SWAGGER_HTML)
+}
 
 /// Health check endpoint with extended status
 #[utoipa::path(
@@ -1585,6 +1827,75 @@ async fn text_completions(
     }
 }
 
+/// OpenAI-compatible embeddings endpoint (local, free)
+#[utoipa::path(
+    post,
+    path = "/v1/embeddings",
+    tag = "OpenAI Compatible",
+    request_body = EmbeddingRequest,
+    responses(
+        (status = 200, description = "Embedding vectors", body = EmbeddingResponse),
+        (status = 400, description = "Invalid request", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError)
+    )
+)]
+#[instrument(skip(state, request), fields(model = %request.model, inputs = request.input.len()))]
+async fn create_embeddings(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<EmbeddingRequest>,
+) -> Result<Json<EmbeddingResponse>, AppError> {
+    debug!("Received embeddings request for {} inputs", request.input.len());
+
+    // Validate request
+    if request.input.is_empty() {
+        return Err(AppError::InvalidRequest(
+            "input cannot be empty".to_string(),
+        ));
+    }
+
+    // Check if embeddings are enabled in config
+    let config = state.config.read().await;
+    if !config.embeddings.enabled {
+        return Err(AppError::InvalidRequest(
+            "Embeddings are disabled. Enable them in config with [embeddings] enabled = true".to_string(),
+        ));
+    }
+    drop(config);
+
+    // Get or lazily initialize embeddings for the requested model
+    let embeddings = state.get_or_init_embeddings(&request.model).await.map_err(|e| {
+        error!("Failed to initialize embeddings model '{}': {}", request.model, e);
+        AppError::InternalError(format!("Failed to initialize embeddings: {}", e))
+    })?;
+
+    // Convert input to vector of strings
+    let texts = request.input.into_vec();
+
+    // Estimate tokens for usage tracking
+    let prompt_tokens = LocalEmbeddings::estimate_tokens(&texts);
+
+    // Generate embeddings
+    let embedding_vectors = embeddings.embed(texts.clone()).map_err(|e| {
+        error!("Embeddings generation failed: {}", e);
+        AppError::InternalError(format!("Embeddings generation failed: {}", e))
+    })?;
+
+    // Build OpenAI-compatible response
+    let response = EmbeddingResponse::new(
+        embedding_vectors,
+        embeddings.model_name().to_string(),
+        prompt_tokens,
+    );
+
+    info!(
+        "Embeddings generated: {} vectors with {} dimensions",
+        response.data.len(),
+        embeddings.dimensions()
+    );
+
+    Ok(Json(response))
+}
+
 // === Document Summarization Types ===
 
 /// Request for document summarization
@@ -1873,8 +2184,18 @@ async fn rag_ingest(
         options.chunk_size = size;
     }
 
+    // Get cached embeddings if available (for semantic search during RAG)
+    let cached_embeddings = state.get_cached_embeddings().await;
+    let embeddings_ref = cached_embeddings.as_deref();
+
     let stats = manager
-        .ingest(&request.collection_id, &path, &options, &state.gemini)
+        .ingest(
+            &request.collection_id,
+            &path,
+            &options,
+            &state.gemini,
+            embeddings_ref,
+        )
         .await
         .map_err(|e| AppError::InternalError(e.to_string()))?;
 
@@ -1921,8 +2242,18 @@ async fn rag_query(
         options.return_sources = return_sources;
     }
 
+    // Get cached embeddings if available (for semantic search during RAG)
+    let cached_embeddings = state.get_cached_embeddings().await;
+    let embeddings_ref = cached_embeddings.as_deref();
+
     let response = manager
-        .query(&request.collection_id, &request.question, &options, &state.gemini)
+        .query(
+            &request.collection_id,
+            &request.question,
+            &options,
+            &state.gemini,
+            embeddings_ref,
+        )
         .await
         .map_err(|e| AppError::InternalError(e.to_string()))?;
 
@@ -1969,6 +2300,7 @@ pub enum AppError {
     InvalidRequest(String),
     QuotaExceeded(QuotaError),
     GeminiError(GeminiError),
+    EmbeddingsError(EmbeddingsError),
     InternalError(String),
 }
 
@@ -1986,6 +2318,12 @@ impl From<QuotaError> for AppError {
 impl From<GeminiError> for AppError {
     fn from(e: GeminiError) -> Self {
         AppError::GeminiError(e)
+    }
+}
+
+impl From<EmbeddingsError> for AppError {
+    fn from(e: EmbeddingsError) -> Self {
+        AppError::EmbeddingsError(e)
     }
 }
 
@@ -2008,6 +2346,10 @@ impl IntoResponse for AppError {
                 };
                 (status, ApiError::internal_error(e.to_string()))
             }
+            AppError::EmbeddingsError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ApiError::internal_error(e.to_string()),
+            ),
             AppError::InternalError(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ApiError::internal_error(msg),

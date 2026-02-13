@@ -144,6 +144,39 @@ impl Default for LoggingConfig {
     }
 }
 
+/// Local embeddings configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingsConfig {
+    /// Whether local embeddings are enabled (default: true)
+    /// When enabled, embeddings are lazily initialized on first request
+    #[serde(default = "default_embeddings_enabled")]
+    pub enabled: bool,
+
+    /// Embedding model to use
+    /// Supported: "all-MiniLM-L6-v2", "bge-small-en-v1.5", "bge-base-en-v1.5",
+    /// "bge-large-en-v1.5", "multilingual-e5-small", "multilingual-e5-base"
+    /// Also accepts OpenAI names: "text-embedding-ada-002", "text-embedding-3-small", "text-embedding-3-large"
+    #[serde(default = "default_embeddings_model")]
+    pub model: String,
+}
+
+fn default_embeddings_enabled() -> bool {
+    true
+}
+
+fn default_embeddings_model() -> String {
+    "all-MiniLM-L6-v2".to_string()
+}
+
+impl Default for EmbeddingsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_embeddings_enabled(),
+            model: default_embeddings_model(),
+        }
+    }
+}
+
 /// Main configuration struct
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
@@ -158,6 +191,9 @@ pub struct Config {
 
     #[serde(default)]
     pub logging: LoggingConfig,
+
+    #[serde(default)]
+    pub embeddings: EmbeddingsConfig,
 }
 
 impl Config {
@@ -239,6 +275,16 @@ impl Config {
         if let Ok(binary) = std::env::var("GENIE_GEMINI_BINARY") {
             self.gemini.binary = binary;
         }
+
+        // GENIE_EMBEDDINGS_ENABLED overrides embeddings enabled
+        if let Ok(enabled) = std::env::var("GENIE_EMBEDDINGS_ENABLED") {
+            self.embeddings.enabled = enabled.to_lowercase() == "true" || enabled == "1";
+        }
+
+        // GENIE_EMBEDDINGS_MODEL overrides embeddings model
+        if let Ok(model) = std::env::var("GENIE_EMBEDDINGS_MODEL") {
+            self.embeddings.model = model;
+        }
     }
 
     /// Save configuration to the default path
@@ -297,6 +343,9 @@ mod tests {
         assert_eq!(config.server.port, 11435);
         assert_eq!(config.quota.per_minute, 60);
         assert_eq!(config.quota.per_day, 1000);
+        // Embeddings defaults
+        assert!(config.embeddings.enabled);
+        assert_eq!(config.embeddings.model, "all-MiniLM-L6-v2");
     }
 
     #[test]

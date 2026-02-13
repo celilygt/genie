@@ -2,12 +2,16 @@
 //!
 //! This module provides a simple RAG subsystem for ingesting documents,
 //! storing embeddings, and querying for relevant context.
+//!
+//! Uses fastembed for local, free embeddings generation.
 
+use crate::embeddings::LocalEmbeddings;
 use crate::gemini::GeminiClient;
 use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqlitePool, Row};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use tracing::{debug, info, warn};
 
 /// Errors that can occur in RAG operations
 #[derive(Error, Debug)]
@@ -332,12 +336,16 @@ impl RagManager {
     }
 
     /// Ingest documents from a path into a collection
+    /// 
+    /// If `embeddings` is provided, real vector embeddings will be generated.
+    /// Otherwise, text-based search will be used.
     pub async fn ingest(
         &self,
         collection_id: &str,
         path: &Path,
         options: &IngestOptions,
-        _gemini: &GeminiClient, // For embeddings in future
+        _gemini: &GeminiClient,
+        embeddings: Option<&LocalEmbeddings>,
     ) -> Result<IngestStats, RagError> {
         let collection = self.get_collection(collection_id).await?;
         let mut stats = IngestStats::default();
@@ -346,17 +354,17 @@ impl RagManager {
         let files = collect_files(path, options)?;
 
         for file_path in files {
-            match self.ingest_file(&collection.id, &file_path, options).await {
+            match self.ingest_file(&collection.id, &file_path, options, embeddings).await {
                 Ok((doc_id, chunk_count)) => {
                     stats.documents_ingested += 1;
                     stats.chunks_created += chunk_count;
-                    tracing::info!("Ingested {} ({} chunks)", file_path.display(), chunk_count);
+                    info!("Ingested {} ({} chunks)", file_path.display(), chunk_count);
 
                     // Store document reference
                     stats.document_ids.push(doc_id);
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to ingest {}: {}", file_path.display(), e);
+                    warn!("Failed to ingest {}: {}", file_path.display(), e);
                     stats.errors.push(format!("{}: {}", file_path.display(), e));
                 }
             }
@@ -371,6 +379,7 @@ impl RagManager {
         collection_id: &str,
         path: &Path,
         options: &IngestOptions,
+        embeddings: Option<&LocalEmbeddings>,
     ) -> Result<(String, u32), RagError> {
         let doc_id = uuid::Uuid::new_v4().to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
@@ -407,20 +416,41 @@ impl RagManager {
         // Chunk the content
         let chunks = chunk_text(&content, options.chunk_size);
 
-        // Insert chunks
+        // Generate embeddings if available
+        let chunk_embeddings: Option<Vec<Vec<f32>>> = if let Some(emb) = embeddings {
+            debug!("Generating embeddings for {} chunks", chunks.len());
+            match emb.embed(chunks.clone()) {
+                Ok(embs) => Some(embs),
+                Err(e) => {
+                    warn!("Failed to generate embeddings: {}. Continuing without embeddings.", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Insert chunks with embeddings
         for (order, chunk_text) in chunks.iter().enumerate() {
             let chunk_id = uuid::Uuid::new_v4().to_string();
+            
+            // Get embedding for this chunk if available
+            let embedding_blob: Option<Vec<u8>> = chunk_embeddings
+                .as_ref()
+                .and_then(|embs| embs.get(order))
+                .map(|emb| embedding_to_blob(emb));
 
             sqlx::query(
                 r#"
-                INSERT INTO rag_chunks (id, document_id, collection_id, text, chunk_order)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO rag_chunks (id, document_id, collection_id, text, embedding, chunk_order)
+                VALUES (?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(&chunk_id)
             .bind(&doc_id)
             .bind(collection_id)
             .bind(chunk_text)
+            .bind(&embedding_blob)
             .bind(order as i32)
             .execute(&self.pool)
             .await?;
@@ -430,17 +460,21 @@ impl RagManager {
     }
 
     /// Query a collection with a question
+    /// 
+    /// If `embeddings` is provided, semantic similarity search will be used.
+    /// Otherwise, falls back to text-based search.
     pub async fn query(
         &self,
         collection_id: &str,
         question: &str,
         options: &QueryOptions,
         gemini: &GeminiClient,
+        embeddings: Option<&LocalEmbeddings>,
     ) -> Result<RagQueryResponse, RagError> {
         let collection = self.get_collection(collection_id).await?;
 
-        // Get all chunks from the collection
-        let chunks = self.get_chunks(&collection.id, options.top_k).await?;
+        // Get all chunks from the collection (with embeddings if available)
+        let chunks = self.get_chunks_with_embeddings(&collection.id, options.top_k).await?;
 
         if chunks.is_empty() {
             return Ok(RagQueryResponse {
@@ -449,14 +483,34 @@ impl RagManager {
             });
         }
 
-        // For now, use simple text matching (no embeddings yet)
-        // TODO: Add proper embedding-based similarity search
-        let relevant_chunks = simple_text_search(&chunks, question, options.top_k);
+        // Use embedding-based search if available, otherwise fall back to text search
+        let relevant_chunks = if let Some(emb) = embeddings {
+            // Check if chunks have embeddings
+            let has_embeddings = chunks.iter().any(|(c, _)| !c.embedding.is_empty());
+            
+            if has_embeddings {
+                debug!("Using embedding-based similarity search");
+                // Generate query embedding
+                match emb.embed_one(question) {
+                    Ok(query_emb) => embedding_search(&chunks, &query_emb, options.top_k),
+                    Err(e) => {
+                        warn!("Failed to generate query embedding: {}. Falling back to text search.", e);
+                        simple_text_search(&chunks, question, options.top_k)
+                    }
+                }
+            } else {
+                debug!("No embeddings in chunks, using text-based search");
+                simple_text_search(&chunks, question, options.top_k)
+            }
+        } else {
+            debug!("No embeddings model, using text-based search");
+            simple_text_search(&chunks, question, options.top_k)
+        };
 
         // Build context from relevant chunks
         let context: String = relevant_chunks
             .iter()
-            .map(|r| format!("--- Source: {} ---\n{}", r.document_path, r.chunk.text))
+            .map(|r| format!("--- Source: {} (score: {:.3}) ---\n{}", r.document_path, r.score, r.chunk.text))
             .collect::<Vec<_>>()
             .join("\n\n");
 
@@ -491,7 +545,8 @@ Answer:"#,
         })
     }
 
-    /// Get chunks from a collection
+    /// Get chunks from a collection (without embeddings)
+    #[allow(dead_code)]
     async fn get_chunks(
         &self,
         collection_id: &str,
@@ -521,6 +576,52 @@ Answer:"#,
                     collection_id: row.get("collection_id"),
                     text: row.get("text"),
                     embedding: vec![],
+                    order: row.get("chunk_order"),
+                };
+                let path: String = row.get("path");
+                (chunk, path)
+            })
+            .collect();
+
+        Ok(chunks)
+    }
+
+    /// Get chunks from a collection with embeddings
+    async fn get_chunks_with_embeddings(
+        &self,
+        collection_id: &str,
+        limit: usize,
+    ) -> Result<Vec<(Chunk, String)>, RagError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT c.id, c.document_id, c.collection_id, c.text, c.embedding, c.chunk_order, d.path
+            FROM rag_chunks c
+            JOIN rag_documents d ON c.document_id = d.id
+            WHERE c.collection_id = ?
+            ORDER BY c.chunk_order
+            LIMIT ?
+            "#,
+        )
+        .bind(collection_id)
+        .bind(limit as i32 * 10) // Get more chunks for search
+        .fetch_all(&self.pool)
+        .await?;
+
+        let chunks = rows
+            .iter()
+            .map(|row| {
+                // Parse embedding from blob if present
+                let embedding_blob: Option<Vec<u8>> = row.get("embedding");
+                let embedding = embedding_blob
+                    .map(|blob| blob_to_embedding(&blob))
+                    .unwrap_or_default();
+
+                let chunk = Chunk {
+                    id: row.get("id"),
+                    document_id: row.get("document_id"),
+                    collection_id: row.get("collection_id"),
+                    text: row.get("text"),
+                    embedding,
                     order: row.get("chunk_order"),
                 };
                 let path: String = row.get("path");
@@ -688,7 +789,6 @@ fn simple_text_search(
 }
 
 /// Compute cosine similarity between two vectors
-#[allow(dead_code)]
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
@@ -703,6 +803,51 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     } else {
         dot / (norm_a * norm_b)
     }
+}
+
+/// Embedding-based similarity search using cosine similarity
+fn embedding_search(
+    chunks: &[(Chunk, String)],
+    query_embedding: &[f32],
+    top_k: usize,
+) -> Vec<QueryResult> {
+    let mut scored: Vec<(f32, &Chunk, &String)> = chunks
+        .iter()
+        .filter(|(chunk, _)| !chunk.embedding.is_empty())
+        .map(|(chunk, path)| {
+            let score = cosine_similarity(query_embedding, &chunk.embedding);
+            (score, chunk, path)
+        })
+        .collect();
+
+    // Sort by score descending
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Take top_k
+    scored
+        .into_iter()
+        .take(top_k)
+        .map(|(score, chunk, path)| QueryResult {
+            chunk: chunk.clone(),
+            score,
+            document_path: path.clone(),
+        })
+        .collect()
+}
+
+/// Convert embedding vector to bytes for storage
+fn embedding_to_blob(embedding: &[f32]) -> Vec<u8> {
+    embedding
+        .iter()
+        .flat_map(|f| f.to_le_bytes())
+        .collect()
+}
+
+/// Convert bytes back to embedding vector
+fn blob_to_embedding(blob: &[u8]) -> Vec<f32> {
+    blob.chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        .collect()
 }
 
 #[cfg(test)]
@@ -763,6 +908,53 @@ mod tests {
         let results = simple_text_search(&chunks, "Rust programming", 5);
         assert!(!results.is_empty());
         assert!(results[0].chunk.text.contains("Rust"));
+    }
+
+    #[test]
+    fn test_embedding_blob_roundtrip() {
+        let embedding = vec![0.1, 0.2, 0.3, -0.4, 0.5];
+        let blob = embedding_to_blob(&embedding);
+        let recovered = blob_to_embedding(&blob);
+        
+        assert_eq!(embedding.len(), recovered.len());
+        for (a, b) in embedding.iter().zip(recovered.iter()) {
+            assert!((a - b).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_embedding_search() {
+        let chunks = vec![
+            (
+                Chunk {
+                    id: "1".to_string(),
+                    document_id: "doc1".to_string(),
+                    collection_id: "col1".to_string(),
+                    text: "Rust programming".to_string(),
+                    embedding: vec![1.0, 0.0, 0.0], // Most similar to query
+                    order: 0,
+                },
+                "/path/to/rust.txt".to_string(),
+            ),
+            (
+                Chunk {
+                    id: "2".to_string(),
+                    document_id: "doc2".to_string(),
+                    collection_id: "col1".to_string(),
+                    text: "Bananas".to_string(),
+                    embedding: vec![0.0, 1.0, 0.0], // Orthogonal to query
+                    order: 0,
+                },
+                "/path/to/fruits.txt".to_string(),
+            ),
+        ];
+
+        let query_emb = vec![1.0, 0.0, 0.0];
+        let results = embedding_search(&chunks, &query_emb, 5);
+        
+        assert!(!results.is_empty());
+        assert!(results[0].chunk.text.contains("Rust"));
+        assert!((results[0].score - 1.0).abs() < 0.001); // Perfect match
     }
 }
 

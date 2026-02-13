@@ -11,10 +11,12 @@
 //! - Repository summarization
 //! - Prompt templates gallery
 //! - RAG (Retrieval-Augmented Generation)
+//! - Local embeddings (via fastembed)
 //! - Shared data models
 
 pub mod config;
 pub mod docs;
+pub mod embeddings;
 pub mod gemini;
 pub mod model;
 pub mod pdf;
@@ -24,7 +26,8 @@ pub mod repo;
 pub mod server;
 pub mod templates;
 
-pub use config::{Config, QuotaConfig};
+pub use config::{Config, EmbeddingsConfig, QuotaConfig};
+pub use embeddings::{EmbeddingsError, LocalEmbeddings};
 pub use gemini::{GeminiClient, GeminiError, GeminiRequest, GeminiResponse};
 pub use model::*;
 pub use quota::{QuotaError, QuotaManager, UsageEvent, UsageStats};

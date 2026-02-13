@@ -79,7 +79,8 @@ pub async fn ingest(
 
     println!("Processing path: {}", path.display());
 
-    let stats = manager.ingest(collection_id, path, &options, &gemini).await?;
+    // Pass None for embeddings - CLI uses text-based search for now
+    let stats = manager.ingest(collection_id, path, &options, &gemini, None).await?;
 
     println!("\nIngest complete:");
     println!("  Documents: {}", stats.documents_ingested);
@@ -120,7 +121,8 @@ pub async fn query(
     }
     options.return_sources = show_sources;
 
-    let response = manager.query(collection_id, question, &options, &gemini).await?;
+    // Pass None for embeddings - CLI uses text-based search for now
+    let response = manager.query(collection_id, question, &options, &gemini, None).await?;
 
     println!("Answer:\n{}\n", response.answer);
 
